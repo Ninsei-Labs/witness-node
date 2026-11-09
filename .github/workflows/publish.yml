@@ -25,14 +25,20 @@ jobs:
           bun-version: 1.4.4
       - name: Run the witness checks
         run: bun run check
+      - name: Build
+        env:
+          IMAGE: ghcr.io/ninsei-labs/witness-node
+        run: |
+          docker build --pull -t witness-node:ci -t "$IMAGE:${GITHUB_REF_NAME}" -t "$IMAGE:latest" .
+      - name: Run the container smoke
+        run: bun run check:container
       - name: Log in to GHCR
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: echo "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
-      - name: Build and push
+      - name: Push
         env:
           IMAGE: ghcr.io/ninsei-labs/witness-node
         run: |
-          docker build --pull -t "$IMAGE:${GITHUB_REF_NAME}" -t "$IMAGE:latest" .
           docker push "$IMAGE:${GITHUB_REF_NAME}"
           docker push "$IMAGE:latest"

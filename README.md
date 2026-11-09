@@ -223,11 +223,17 @@ Notes:
 
 ```bash
 bun run check
+docker build -t witness-node:ci .
+bun run check:container
 ```
 
 - `check:slice` drives the reader and HTTP route, including the proxy routes, fixed-grid bounds and malformed
   answers.
 - `check:teeth` removes the `get_info` and `get_transactions` proxy routes and proves the SDK's first call fails.
+- `check:container` runs the built image against a deterministic stand-in daemon. It verifies the process runs as
+  UID/GID `10001`, the root filesystem is read-only, `/health` becomes ready, `/metrics` and `/info` answer, the two
+  proxy reads work, and the response contains the exact 20 pinned hashes from
+  `tools/fixtures/stagenet-slice-5.json`. It requires Docker and does not use a real chain.
 
 ## Security boundary
 
