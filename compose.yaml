@@ -1,0 +1,28 @@
+# EXAMPLE ONLY. Copy next to the service and fill in witness.env.
+#
+# The witness has no volumes and no writable paths. The host publishes it on loopback; a TLS reverse proxy is the
+# public surface. Three local instances are started by the local-stand contour, not here.
+services:
+  witness:
+    image: ghcr.io/ninsei-labs/witness-node:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: witness-node
+    env_file:
+      - ./witness.env
+    environment:
+      RFQ_WITNESS_HOST: 0.0.0.0
+      RFQ_WITNESS_PORT: "8796"
+    ports:
+      - "127.0.0.1:8796:8796"
+    read_only: true
+    tmpfs:
+      - /tmp
+    user: "10001:10001"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 10s
+    restart: unless-stopped
