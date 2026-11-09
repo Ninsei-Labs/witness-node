@@ -27,3 +27,5 @@ jobs:
         run: bun run check
       - name: Build the image
         run: docker build --pull -t witness-node:ci .
+      - name: Run the container smoke
+        run: bun run check:container
