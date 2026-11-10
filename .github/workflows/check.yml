@@ -2,6 +2,7 @@ name: check
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [main]
 
@@ -20,11 +21,21 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Check out the SDK client
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: Ninsei-Labs/sdk
+          ref: main
+          path: sdk-client
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.4.4
       - name: Run the witness checks
         run: bun run check
+      - name: Run the SDK/witness interop check
+        env:
+          SDK_DIR: ${{ github.workspace }}/sdk-client
+        run: bun run check:interop
       - name: Build the image
         run: docker build --pull -t witness-node:ci .
       - name: Run the container smoke

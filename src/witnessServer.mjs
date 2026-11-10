@@ -1,8 +1,8 @@
 // THE WITNESS-V1 HTTP SURFACE. One read-only service: fixed block slices, plus the two daemon reads the SDK needs.
 //
 // This server is deliberately separate from the maker API: it has no token, no wallet, no order journal and no
-// maker routes. It can run beside any Monero daemon, including the Ninsei stagenet node, and it is safe to expose
-// as a read-only public endpoint.
+// maker routes. It can run beside any Monero daemon, including the Ninsei stagenet node. A public deployment puts it
+// behind a read-only reverse proxy; the listener itself stays private.
 //
 // CORS is required because the SDK runs in a page. The route accepts no cookies and no credentials; the allow
 // origin is a deployment setting (`*` on a public witness, a site origin when the operator wants to narrow it).
@@ -13,7 +13,7 @@
 import { createServer } from "node:http";
 import {
   WITNESS_SLICE_BLOCKS, WITNESS_VERSION, WitnessSliceError,
-  assertWitnessSliceShape, daemonDirect, daemonJsonRpc, parseWitnessSliceRequest, readWitnessSlice,
+  assertWitnessSliceShape, daemonDirect, parseWitnessSliceRequest, readDaemonTip, readWitnessSlice,
 } from "./witnessSlice.mjs";
 
 const SERVICE = "Ninsei-Witness";
@@ -26,7 +26,7 @@ const LOOPBACK = /^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/;
 
 const STATUS = new Map([
   ["bad-request", 400], ["bad-version", 400], ["wrong-network", 400], ["bad-grid", 400], ["bad-slice", 400],
-  ["daemon-unavailable", 503], ["bad-daemon-answer", 502],
+  ["daemon-unavailable", 503], ["not-synchronized", 503], ["busy", 503], ["bad-daemon-answer", 502],
 ]);
 
 const ROUTES = ["/live", "/health", "/metrics", "/info", "/json_rpc", "/get_transactions", "/v1/witness/slice"];
@@ -76,7 +76,9 @@ function readBody(req, limit) {
 function refusal(error) {
   const code = error && error.code ? String(error.code) : "bad-request";
   const status = STATUS.get(code) || 500;
-  return { status, body: { ok: false, code, error: code.replace(/-/g, " "), params: error && error.params ? error.params : undefined } };
+  const params = error && error.params ? error.params : undefined;
+  return { status, body: { ok: false, code, error: code.replace(/-/g, " "), params,
+    ...(params && params.retryAfterSec ? { retryAfterSec: params.retryAfterSec } : {}) } };
 }
 
 async function readJson(req, limit) {
@@ -94,11 +96,13 @@ async function readJson(req, limit) {
 export function createWitnessServer({
   network, daemonUrl, allowOrigin = "*", operator = null, contact = null, metricsPublished = false,
   healthTtlMs = 5000, maxInflight = 4, fetchImpl = globalThis.fetch, timeoutMs = 8000,
-  maxBodyBytes = MAX_BODY_BYTES,
+  maxBodyBytes = MAX_BODY_BYTES, requestTimeoutMs = 10000, headersTimeoutMs = 10000,
 } = {}) {
   if (!network) throw new Error("witness server: network is required");
   if (!daemonUrl) throw new Error("witness server: daemon URL is required");
   if (!Number.isInteger(maxInflight) || maxInflight < 1) throw new Error("witness server: maxInflight must be a positive integer");
+  if (!Number.isInteger(requestTimeoutMs) || requestTimeoutMs < 1) throw new Error("witness server: requestTimeoutMs must be a positive integer");
+  if (!Number.isInteger(headersTimeoutMs) || headersTimeoutMs < 1) throw new Error("witness server: headersTimeoutMs must be a positive integer");
   const cors = String(allowOrigin || "*");
   const startedAt = Date.now();
   const requests = new Map();
@@ -113,14 +117,14 @@ export function createWitnessServer({
   async function checkHealth() {
     if (Date.now() - health.at < healthTtlMs) return health;
     try {
-      const info = await daemonJsonRpc(daemonUrl, "get_info", {}, fetchImpl, timeoutMs);
-      const daemonOk = info.busy !== true && info.busy_syncing !== true && info.synchronized === true;
-      const nettype = String(info.nettype || "").toLowerCase();
-      const networkOk = nettype === String(network).toLowerCase();
-      health = { at: Date.now(), ok: daemonOk && networkOk,
-        daemon: daemonOk ? "ok" : "not-ready", network: networkOk ? "ok" : "mismatch" };
-    } catch {
-      health = { at: Date.now(), ok: false, daemon: "unavailable", network: "unknown" };
+      const tip = await readDaemonTip({ daemonUrl, network, fetchImpl, timeoutMs });
+      health = { at: Date.now(), ok: true, daemon: "ok", network: "ok", height: tip.height };
+    } catch (error) {
+      const why = error && error.params && error.params.why;
+      const networkMismatch = why === "wrong-network";
+      health = { at: Date.now(), ok: false,
+        daemon: error && error.code === "daemon-unavailable" ? "unavailable" : (networkMismatch ? "ok" : "not-ready"),
+        network: networkMismatch ? "mismatch" : "unknown" };
     }
     return health;
   }
@@ -160,7 +164,7 @@ export function createWitnessServer({
     return lines.join("\n");
   }
 
-  return createServer(async (req, res) => {
+  const server = createServer(async (req, res) => {
     const route = routeKey(req.url);
     const send = (code, body, contentType, corsHeaders = true) => {
       note(route, code);
@@ -218,14 +222,18 @@ export function createWitnessServer({
       return send(200, metricsText(current), "text/plain; version=0.0.4; charset=utf-8");
     }
 
-    // ONE SLICE COSTS 20 DAEMON CALLS. Cap the number of work requests in flight so a public caller cannot turn
-    // one witness into an unbounded amplifier against the operator's monerod. The reverse proxy still needs its
-    // own per-client rate limit; this is the last line of defense for the daemon.
-    const work = req.method === "POST" && ["/json_rpc", "/get_transactions", "/v1/witness/slice"].includes(req.url);
-    if (work && inflight >= maxInflight) {
-      return send(503, { ok: false, code: "busy", error: "witness is at its in-flight ceiling", retryAfterSec: 1 });
-    }
-    if (work) inflight += 1;
+    // ONE SLICE COSTS UP TO 20 BLOCK READS PLUS A TIP READ. Cap the number of work requests in flight so a public
+    // caller cannot turn one witness into an unbounded amplifier against the operator's monerod. The reverse proxy
+    // still needs its own per-client rate limit; this is the last line of defense for the daemon.
+    //
+    // THE SLOT IS TAKEN AFTER THE BODY IS READ. A caller that sends headers and no body holds no daemon slot;
+    // otherwise four idle sockets stop the service for the whole request timeout.
+    let slot = false;
+    const takeSlot = () => {
+      if (inflight >= maxInflight) throw new WitnessSliceError("busy", { retryAfterSec: 1 });
+      inflight += 1;
+      slot = true;
+    };
 
     try {
       // The SDK must ask the same witness for its tip and for the slice's transactions. `get_info` names no
@@ -235,7 +243,11 @@ export function createWitnessServer({
         if (!body || typeof body !== "object" || body.method !== "get_info") {
           throw new WitnessSliceError("bad-request", { why: "method-not-proxied" });
         }
-        const result = await daemonJsonRpc(daemonUrl, "get_info", {}, fetchImpl, timeoutMs);
+        takeSlot();
+        const tip = await readDaemonTip({ daemonUrl, network, fetchImpl, timeoutMs });
+        // ONLY THE FIELDS THE CLIENT CHECKS. The daemon's version, peers, disk space and bootstrap address are
+        // not the witness's to publish.
+        const result = { height: tip.height, synchronized: true, nettype: tip.nettype, status: "OK" };
         return send(200, { jsonrpc: "2.0", id: body.id === undefined ? "witness" : body.id, result });
       }
       if (req.method === "POST" && req.url === "/get_transactions") {
@@ -245,6 +257,7 @@ export function createWitnessServer({
           || txids.some((txid) => !HEX64.test(String(txid || "").replace(/^0x/, "")))) {
           throw new WitnessSliceError("bad-request", { why: "bad-txids" });
         }
+        takeSlot();
         const answer = await daemonDirect(daemonUrl, "/get_transactions",
           { txs_hashes: txids.map((txid) => String(txid).replace(/^0x/, "")), decode_as_json: true }, fetchImpl, timeoutMs);
         return send(200, answer);
@@ -254,7 +267,9 @@ export function createWitnessServer({
       }
       const body = await readJson(req, maxBodyBytes);
       const sliceRequest = parseWitnessSliceRequest(body, { network, grid: WITNESS_SLICE_BLOCKS });
-      const slice = await readWitnessSlice({ daemonUrl, network, ...sliceRequest, fetchImpl, timeoutMs });
+      takeSlot();
+      const tip = await readDaemonTip({ daemonUrl, network, fetchImpl, timeoutMs });
+      const slice = await readWitnessSlice({ daemonUrl, network, ...sliceRequest, top: tip.top, fetchImpl, timeoutMs });
       assertWitnessSliceShape(slice, { network, grid: WITNESS_SLICE_BLOCKS });
       return send(200, slice);
     } catch (error) {
@@ -265,9 +280,14 @@ export function createWitnessServer({
       }
       return send(answer.status, answer.body);
     } finally {
-      if (work) inflight -= 1;
+      if (slot) inflight -= 1;
     }
   });
+  // A REQUEST THAT NEVER FINISHES IS NOT A CUSTOMER. Node's default is 300 s; four idle sockets would hold every
+  // daemon slot for that long. The body is small, so a request that needs longer is not a witness request.
+  server.requestTimeout = requestTimeoutMs;
+  server.headersTimeout = headersTimeoutMs;
+  return server;
 }
 
 export function listenHostFromEnv(env = process.env) {

@@ -4,7 +4,8 @@
 # public surface. Three local instances are started by the local-stand contour, not here.
 services:
   witness:
-    image: ghcr.io/ninsei-labs/witness-node:latest
+    # Pin the release tag. The build block is for a local image; never deploy `latest`.
+    image: ghcr.io/ninsei-labs/witness-node:v0.1.0
     build:
       context: .
       dockerfile: Dockerfile

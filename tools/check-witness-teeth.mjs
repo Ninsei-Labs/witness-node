@@ -25,7 +25,7 @@ const daemon = await new Promise((resolve) => {
       const body = raw ? JSON.parse(raw) : {};
       res.setHeader("content-type", "application/json");
       if (req.url === "/json_rpc" && body.method === "get_info") {
-        return res.end(JSON.stringify({ result: { height: 120, synchronized: true } }));
+        return res.end(JSON.stringify({ result: { height: 120, synchronized: true, status: "OK", nettype: "stagenet" } }));
       }
       if (req.url === "/get_transactions") {
         return res.end(JSON.stringify({ txs: [{ tx_hash: TXID, block_height: 105 }], txs_as_json: ['{"version":2}'] }));
@@ -75,7 +75,7 @@ try {
   const noInfoServer = await serve(noInfo);
   try {
     const answer = await call(noInfoServer.url, "/json_rpc", { jsonrpc: "2.0", id: "i", method: "get_info" });
-    check(answer.status === 404, "removing the get_info route makes the SDK's first call fail");
+    check(answer.status === 404, "removing the get_info route makes the tip call fail");
   } finally { await close(noInfoServer.server); }
 
   const noTxs = await mutated("no-txs", 'if (req.method === "POST" && req.url === "/get_transactions") {', "if (false) {");

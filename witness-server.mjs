@@ -15,6 +15,7 @@
 //   RFQ_WITNESS_METRICS_PUBLISH  1/true/yes/on exposes /metrics beyond loopback
 //   RFQ_WITNESS_HEALTH_TTL_MS    readiness probe cache (default: 5000)
 //   RFQ_WITNESS_MAX_INFLIGHT     concurrent daemon-backed requests (default: 4)
+//   RFQ_WITNESS_REQUEST_TIMEOUT_MS  request and header deadline (default: 10000)
 import { createWitnessServer, envBoolean, envText, listenHostFromEnv, listenPortFromEnv } from "./src/witnessServer.mjs";
 import { WITNESS_SLICE_BLOCKS, WITNESS_VERSION } from "./src/witnessSlice.mjs";
 
@@ -46,12 +47,18 @@ if (!Number.isInteger(maxInflight) || maxInflight < 1) {
   console.error("witness: RFQ_WITNESS_MAX_INFLIGHT must be a positive integer");
   process.exit(1);
 }
+const requestTimeoutMs = Number(process.env.RFQ_WITNESS_REQUEST_TIMEOUT_MS || 10000);
+if (!Number.isInteger(requestTimeoutMs) || requestTimeoutMs < 1) {
+  console.error("witness: RFQ_WITNESS_REQUEST_TIMEOUT_MS must be a positive integer");
+  process.exit(1);
+}
 const operator = envText(process.env.RFQ_WITNESS_OPERATOR, 80);
 const contact = envText(process.env.RFQ_WITNESS_CONTACT, 200);
 const metricsPublished = envBoolean(process.env.RFQ_WITNESS_METRICS_PUBLISH);
 
 const server = createWitnessServer({
   network, daemonUrl, allowOrigin, operator, contact, metricsPublished, healthTtlMs, maxInflight, timeoutMs,
+  requestTimeoutMs, headersTimeoutMs: requestTimeoutMs,
 });
 server.on("error", (error) => {
   console.error(JSON.stringify({ event: "witness_listener_failed", why: String((error && error.message) || error) }));

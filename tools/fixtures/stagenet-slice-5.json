@@ -1,4 +1,6 @@
 {
+  "synthetic": true,
+  "note": "Synthetic stand-in data: hashes come from tools/fake-monerod.mjs, not from a recorded stagenet chain.",
   "network": "stagenet",
   "grid": 20,
   "slice": 5,
