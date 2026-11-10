@@ -13,7 +13,7 @@
 import { createServer } from "node:http";
 import {
   WITNESS_SLICE_BLOCKS, WITNESS_VERSION, WitnessSliceError,
-  assertWitnessSliceShape, daemonDirect, parseWitnessSliceRequest, readDaemonTip, readWitnessSlice,
+  daemonDirect, parseWitnessSliceRequest, readDaemonTip, readWitnessSlice,
 } from "./witnessSlice.mjs";
 
 const SERVICE = "Ninsei-Witness";
@@ -280,7 +280,6 @@ export function createWitnessServer({
       const tip = await readDaemonTip({ daemonUrl, network, fetchImpl, timeoutMs });
       const slice = await readWitnessSlice({ daemonUrl, network, ...sliceRequest, top: tip.top,
         topHash: tip.topBlockHash, fetchImpl, timeoutMs });
-      assertWitnessSliceShape(slice, { network, grid: WITNESS_SLICE_BLOCKS });
       return send(200, slice);
     } catch (error) {
       const answer = refusal(error);
