@@ -27,6 +27,12 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
+      - name: Check out the SDK client
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: Ninsei-Labs/sdk
+          ref: main
+          path: sdk-client
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
@@ -65,6 +71,11 @@ jobs:
 
       - name: Run the witness checks
         run: bun run check
+
+      - name: Run the SDK/witness interop check
+        env:
+          SDK_DIR: ${{ github.workspace }}/sdk-client
+        run: bun run check:interop
 
       - name: Build the image for the smoke
         run: docker build --pull -t witness-node:ci .

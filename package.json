@@ -15,6 +15,7 @@
     "check:slice": "bun tools/check-witness-slice.mjs",
     "check:teeth": "bun tools/check-witness-teeth.mjs",
     "check:workflows": "bun tools/check-workflows.mjs",
+    "check:interop": "bun tools/check-sdk-interop.mjs",
     "check:container": "bun tools/check-container.mjs"
   }
 }

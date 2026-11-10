@@ -72,6 +72,7 @@ export function startFakeDaemon({ host = "0.0.0.0", port = 0, network = "stagene
         server,
         port: actualPort,
         url: "http://127.0.0.1:" + actualPort,
+        state,
         close: () => new Promise((done) => { server.closeAllConnections?.(); server.close(done); }),
       });
     });

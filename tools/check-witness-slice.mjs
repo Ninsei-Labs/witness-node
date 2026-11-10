@@ -256,8 +256,8 @@ try {
       const wrongBase = "http://127.0.0.1:" + wrongNetwork.address().port;
       const wrongHealth = await fetch(wrongBase + "/health");
       const wrongBody = await wrongHealth.json();
-      check(wrongHealth.status === 503 && wrongBody.checks.network === "mismatch",
-        "readiness refuses a daemon on another network");
+      check(wrongHealth.status === 503 && wrongBody.checks.network === "mismatch"
+        && wrongBody.checks.daemon === "ok", "readiness names a reachable daemon on another network");
       const wrongMetrics = await fetch(wrongBase + "/metrics");
       check((await wrongMetrics.text()).includes("ninsei_witness_health_up 0"),
         "metrics report a failed readiness probe");

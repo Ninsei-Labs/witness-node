@@ -75,7 +75,7 @@ try {
   const noInfoServer = await serve(noInfo);
   try {
     const answer = await call(noInfoServer.url, "/json_rpc", { jsonrpc: "2.0", id: "i", method: "get_info" });
-    check(answer.status === 404, "removing the get_info route makes the SDK's first call fail");
+    check(answer.status === 404, "removing the get_info route makes the tip call fail");
   } finally { await close(noInfoServer.server); }
 
   const noTxs = await mutated("no-txs", 'if (req.method === "POST" && req.url === "/get_transactions") {', "if (false) {");

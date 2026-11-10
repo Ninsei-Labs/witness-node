@@ -24,6 +24,10 @@ function findings(checkText, publishText) {
   need(publishText, "git merge-base --is-ancestor", "publish.yml does not require the tagged commit on main");
   need(publishText, "actions/workflows/check.yml/runs", "publish.yml does not read the tagged commit's CI run");
   need(publishText, "state\" != success", "publish.yml does not refuse a CI run that did not pass");
+  need(checkText, "repository: Ninsei-Labs/sdk", "check.yml does not check out the SDK client");
+  need(checkText, "run: bun run check:interop", "check.yml does not run the SDK/witness interop check");
+  need(publishText, "repository: Ninsei-Labs/sdk", "publish.yml does not check out the SDK client");
+  need(publishText, "run: bun run check:interop", "publish.yml does not run the SDK/witness interop check");
   need(publishText, "--provenance=true", "publish.yml publishes without provenance");
   need(publishText, "!contains(github.ref_name, '-')", "publish.yml moves latest for a pre-release");
   need(publishText, "imagetools create -t \"$IMAGE:latest\"", "publish.yml does not move latest to the tagged digest");
@@ -42,6 +46,8 @@ const mutations = [
   ["git merge-base --is-ancestor", "", "publish.yml does not require the tagged commit on main"],
   ["actions/workflows/check.yml/runs", "", "publish.yml does not read the tagged commit's CI run"],
   ["state\" != success", "", "publish.yml does not refuse a CI run that did not pass"],
+  ["repository: Ninsei-Labs/sdk", "", "check.yml does not check out the SDK client"],
+  ["run: bun run check:interop", "", "check.yml does not run the SDK/witness interop check"],
   ["--provenance=true", "", "publish.yml publishes without provenance"],
   ["!contains(github.ref_name, '-')", "", "publish.yml moves latest for a pre-release"],
   ["imagetools create -t \"$IMAGE:latest\"", "", "publish.yml does not move latest to the tagged digest"],

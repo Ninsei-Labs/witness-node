@@ -237,6 +237,8 @@ bun run check:container
 - `check:teeth` removes the `get_info` and `get_transactions` proxy routes and proves the HTTP call fails.
 - `check:workflows` checks the ready-for-review trigger and the publish ancestry, CI, environment and
   pre-release gates.
+- `check:interop` fetches a real witness answer and parses it with the SDK's `src/witness-slice.mjs`. Set
+  `SDK_DIR` to the SDK checkout; CI checks out `Ninsei-Labs/sdk` on `main`.
 - `check:container` runs the built image against a deterministic stand-in daemon. It verifies the process runs as
   UID/GID `10001`, the root filesystem is read-only, `/health` becomes ready, `/metrics` and `/info` answer, the two
   proxy reads work, and the response contains the exact 20 pinned hashes from

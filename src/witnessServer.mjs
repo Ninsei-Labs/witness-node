@@ -121,9 +121,10 @@ export function createWitnessServer({
       health = { at: Date.now(), ok: true, daemon: "ok", network: "ok", height: tip.height };
     } catch (error) {
       const why = error && error.params && error.params.why;
+      const networkMismatch = why === "wrong-network";
       health = { at: Date.now(), ok: false,
-        daemon: error && error.code === "daemon-unavailable" ? "unavailable" : "not-ready",
-        network: why === "wrong-network" ? "mismatch" : "unknown" };
+        daemon: error && error.code === "daemon-unavailable" ? "unavailable" : (networkMismatch ? "ok" : "not-ready"),
+        network: networkMismatch ? "mismatch" : "unknown" };
     }
     return health;
   }
