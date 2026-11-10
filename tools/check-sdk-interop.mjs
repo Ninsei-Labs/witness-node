@@ -84,16 +84,16 @@ const tx = fixture();
 const close = (server) => new Promise((resolve) => { server.closeAllConnections?.(); server.close(resolve); });
 const show = (value) => JSON.stringify(value, (_, item) => typeof item === "bigint" ? item.toString() : item);
 
-async function witnessFor(daemon) {
-  const server = createWitnessServer({ network: "stagenet", daemonUrl: daemon.url, healthTtlMs: 0 });
+async function witnessFor(daemon, operator) {
+  const server = createWitnessServer({ network: "stagenet", daemonUrl: daemon.url, healthTtlMs: 0, operator });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-  return { server, url: "http://127.0.0.1:" + server.address().port };
+  return { server, url: "http://127.0.0.1:" + server.address().port, operator };
 }
 
-async function shadow(exact, witness) {
+async function shadow(exact, witnesses) {
   return arrival.verifyArrivalShadow({
     nodes: [{ url: exact.url, operator: "A" }, { url: exact.url, operator: "B" }],
-    witnessNodes: [{ url: witness.url, operator: "W", protocol: "witness-v1" }],
+    witnessNodes: witnesses.map((witness) => ({ url: witness.url, operator: witness.operator, protocol: "witness-v1" })),
     address, viewSecret: VIEW, spendPub, expectedAtomic: AMOUNT, minConfirmations: 1, fromHeight: 100,
   });
 }
@@ -101,10 +101,10 @@ async function shadow(exact, witness) {
 const servers = [];
 try {
   const paidDaemon = await startFakeDaemon({ host: "127.0.0.1", state: { height: 120 }, txJson: tx });
-  const paidWitness = await witnessFor(paidDaemon);
-  servers.push(paidDaemon, paidWitness);
+  const paidWitnesses = [await witnessFor(paidDaemon, "W1"), await witnessFor(paidDaemon, "W2")];
+  servers.push(paidDaemon, ...paidWitnesses);
 
-  const paid = await shadow(paidDaemon, paidWitness);
+  const paid = await shadow(paidDaemon, paidWitnesses);
   assert.equal(paid.exact.state, "arrived", show(paid.exact));
   assert.equal(paid.exact.txid, TXID);
   assert.equal(paid.exact.amountAtomic, String(AMOUNT));
@@ -115,10 +115,10 @@ try {
   assert.equal(paid.agrees, true, show(paid.problems));
 
   const emptyDaemon = await startFakeDaemon({ host: "127.0.0.1", state: { height: 120 }, payout: false });
-  const emptyWitness = await witnessFor(emptyDaemon);
-  servers.push(emptyDaemon, emptyWitness);
+  const emptyWitnesses = [await witnessFor(emptyDaemon, "W1"), await witnessFor(emptyDaemon, "W2")];
+  servers.push(emptyDaemon, ...emptyWitnesses);
 
-  const absent = await shadow(emptyDaemon, emptyWitness);
+  const absent = await shadow(emptyDaemon, emptyWitnesses);
   assert.equal(absent.exact.absent, true, show(absent.exact));
   assert.equal(absent.witness.completed, true, show(absent.witness));
   assert.deepEqual(absent.problems, []);
@@ -126,7 +126,7 @@ try {
 
   // THE REAL SLICE BODY STILL PARSES THROUGH THE SDK PARSER. The shadow above uses the same server path, but this
   // pins the wire shape independently of the arrival decision.
-  const response = await fetch(paidWitness.url + "/v1/witness/slice", {
+  const response = await fetch(paidWitnesses[0].url + "/v1/witness/slice", {
     method: "POST", headers: { "content-type": "application/json" },
     body: JSON.stringify({ version: 1, network: "stagenet", grid: 20, slice: 5 }),
   });
