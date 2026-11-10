@@ -9,6 +9,7 @@
 //   * a partial or non-consecutive answer is rejected, not scanned.
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
+import { createConnection } from "node:net";
 import { createWitnessServer, isLoopbackAddress, listenHostFromEnv, listenPortFromEnv } from "../src/witnessServer.mjs";
 import {
   WITNESS_SLICE_BLOCKS, WitnessSliceError,
@@ -29,6 +30,10 @@ const hash = (height) => String(height).padStart(64, "0");
 const TXID = "ab".repeat(32);
 const calls = [];
 let daemonDelayMs = 0;
+const daemonState = {
+  height: 120, synchronized: true, nettype: "stagenet", busy: false, busy_syncing: false,
+  untrusted: false, status: "OK", version: "0.18.5.4", peers: 3,
+};
 
 const daemon = await new Promise((resolve) => {
   const server = createServer((req, res) => {
@@ -39,7 +44,7 @@ const daemon = await new Promise((resolve) => {
       calls.push(body);
       if (body.method === "get_info") {
         res.writeHead(200, { "content-type": "application/json" });
-        return res.end(JSON.stringify({ jsonrpc: "2.0", id: body.id, result: { height: 120, synchronized: true, nettype: "stagenet" } }));
+        return res.end(JSON.stringify({ jsonrpc: "2.0", id: body.id, result: { ...daemonState } }));
       }
       if (body.method !== "get_block" && !Array.isArray(body.txs_hashes)) {
         res.writeHead(400, { "content-type": "application/json" });
@@ -98,12 +103,28 @@ try {
 
   const slice = await readWitnessSlice({ daemonUrl: daemon.url, network: "stagenet", slice: 5 });
   check(slice.blocks.length === 20, "the reader returns every block in the slice");
+  check(slice.complete === true && slice.tip === null, "a slice below the tip is complete and names no partial tip");
   check(slice.blocks[0].height === 100 && slice.blocks[19].height === 119, "the slice starts and ends on the grid");
   check(slice.blocks[5].txids.length === 1 && slice.blocks[5].txids[0] === TXID, "a block keeps its transactions");
-  check(calls.length === 20 && calls.every((call) => call.method === "get_block"), "the daemon is asked for blocks only");
-  check(calls.map((call) => call.params.height).join(",") === Array.from({ length: 20 }, (_, i) => 100 + i).join(","),
+  const blockCalls = calls.filter((call) => call.method === "get_block");
+  check(blockCalls.length === 20 && blockCalls.every((call) => call.method === "get_block"), "the daemon is asked for blocks only");
+  check(blockCalls.map((call) => call.params.height).join(",") === Array.from({ length: 20 }, (_, i) => 100 + i).join(","),
     "the daemon sees the whole slice, not one order height");
   assertWitnessSliceShape(slice, { network: "stagenet" });
+
+  daemonState.height = 116;
+  calls.length = 0;
+  const tipSlice = await readWitnessSlice({ daemonUrl: daemon.url, network: "stagenet", slice: 5 });
+  check(tipSlice.blocks.length === 16 && tipSlice.blocks[15].height === 115,
+    "the tip slice stops at the daemon's top block");
+  check(tipSlice.complete === false && tipSlice.to === 115 && tipSlice.tip && tipSlice.tip.height === 115,
+    "the tip slice is partial and names the tip it reached");
+  check(tipSlice.tip.hash === tipSlice.blocks[15].hash, "the named tip is the last block in the partial answer");
+  check(calls.filter((call) => call.method === "get_block").map((call) => call.params.height).join(",")
+    === Array.from({ length: 16 }, (_, i) => 100 + i).join(","), "the reader never asks for a height above the tip");
+  assertWitnessSliceShape(tipSlice, { network: "stagenet" });
+  daemonState.height = 120;
+  calls.length = 0;
 
   await rejects(() => assertWitnessSliceShape({ ...slice, blocks: slice.blocks.slice(0, 19) }, { network: "stagenet" }),
     "bad-daemon-answer", "a partial slice is refused");
@@ -113,6 +134,12 @@ try {
   const wrongHeight = { ...slice, blocks: slice.blocks.map((block, i) => i === 0 ? { ...block, height: 101 } : block) };
   await rejects(() => assertWitnessSliceShape(wrongHeight, { network: "stagenet" }), "bad-daemon-answer",
     "a non-consecutive block height is refused");
+  await rejects(() => assertWitnessSliceShape({ ...tipSlice, complete: true }, { network: "stagenet" }),
+    "bad-daemon-answer", "a partial slice that claims to be complete is refused");
+  await rejects(() => assertWitnessSliceShape({ ...tipSlice, tip: { ...tipSlice.tip, height: 119 } }, { network: "stagenet" }),
+    "bad-daemon-answer", "a partial slice whose tip height does not match its last block is refused");
+  await rejects(() => assertWitnessSliceShape({ ...tipSlice, tip: { ...tipSlice.tip, hash: hash(119) } }, { network: "stagenet" }),
+    "bad-daemon-answer", "a partial slice whose tip hash does not match its last block is refused");
 
   const witness = createWitnessServer({
     network: "stagenet", daemonUrl: daemon.url, operator: "Local Operator", contact: "ops@example.test",
@@ -133,6 +160,10 @@ try {
     const infoBody = await info.json();
     check(info.status === 200 && infoBody.result && infoBody.result.height === 120,
       "the witness proxies get_info so the SDK can read its tip");
+    check(infoBody.result.status === "OK" && infoBody.result.nettype === "stagenet",
+      "the proxied tip carries the readiness fields the client checks");
+    check(!("version" in infoBody.result) && !("peers" in infoBody.result) && !("bootstrap" in infoBody.result),
+      "the proxied tip does not publish the daemon's version, peers or bootstrap address");
 
     const health = await fetch(base + "/health");
     const healthBody = await health.json();
@@ -186,6 +217,18 @@ try {
     check(answer.headers.get("access-control-allow-origin") === "*", "the route carries CORS for the browser");
     const body = await answer.json();
     check(body.blocks.length === 20 && body.blocks[0].height === 100, "the route returns the requested slice");
+    check(body.complete === true && body.to === 119, "the route marks a slice below the tip complete");
+
+    daemonState.height = 116;
+    const tipAnswer = await fetch(base + "/v1/witness/slice", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(good),
+    });
+    const tipBody = await tipAnswer.json();
+    check(tipAnswer.status === 200 && tipBody.complete === false && tipBody.to === 115 && tipBody.blocks.length === 16,
+      "the route serves the tip slice partially instead of refusing it");
+    check(tipBody.tip && tipBody.tip.height === 115 && tipBody.tip.hash === tipBody.blocks[15].hash,
+      "the partial route answer names the tip hash");
+    daemonState.height = 120;
 
     const exact = await fetch(base + "/v1/witness/slice", {
       method: "POST", headers: { "content-type": "application/json" },
@@ -200,7 +243,7 @@ try {
 
     const oversized = await fetch(base + "/v1/witness/slice", {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ version: 1, network: "stagenet", grid: 20, slice: 5, pad: "x".repeat(2048) }),
+      body: JSON.stringify({ version: 1, network: "stagenet" + "x".repeat(2048), grid: 20, slice: 5 }),
     });
     check(oversized.status === 400, "the route refuses an oversized body without draining it");
 
@@ -222,6 +265,37 @@ try {
       await close(wrongNetwork);
     }
 
+    const stateServer = createWitnessServer({ network: "stagenet", daemonUrl: daemon.url, healthTtlMs: 0 });
+    await new Promise((resolve) => stateServer.listen(0, "127.0.0.1", resolve));
+    try {
+      const stateBase = "http://127.0.0.1:" + stateServer.address().port;
+      for (const [field, value, label] of [
+        ["synchronized", false, "a daemon that is not synchronized"],
+        ["busy_syncing", true, "a daemon that is still syncing"],
+        ["untrusted", true, "a daemon that serves a third party's chain"],
+        ["status", "BUSY", "a daemon whose status is not OK"],
+        ["nettype", "mainnet", "a daemon on another network"],
+      ]) {
+        const previous = daemonState[field];
+        daemonState[field] = value;
+        const healthAnswer = await fetch(stateBase + "/health");
+        const jsonAnswer = await fetch(stateBase + "/json_rpc", {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ jsonrpc: "2.0", id: "info", method: "get_info", params: {} }),
+        });
+        const sliceAnswer = await fetch(stateBase + "/v1/witness/slice", {
+          method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(good),
+        });
+        const sliceBody = await sliceAnswer.json();
+        check(healthAnswer.status === 503 && jsonAnswer.status === 503 && sliceAnswer.status === 503,
+          label + " is refused by health, the tip route and the slice route");
+        check(sliceBody.code === "not-synchronized", label + " is named as not-synchronized");
+        daemonState[field] = previous;
+      }
+    } finally {
+      await close(stateServer);
+    }
+
     daemonDelayMs = 25;
     const limited = createWitnessServer({ network: "stagenet", daemonUrl: daemon.url, maxInflight: 1 });
     await new Promise((resolve) => limited.listen(0, "127.0.0.1", resolve));
@@ -241,6 +315,34 @@ try {
     } finally {
       daemonDelayMs = 0;
       await close(limited);
+    }
+
+    const idle = createWitnessServer({
+      network: "stagenet", daemonUrl: daemon.url, maxInflight: 1, requestTimeoutMs: 200, headersTimeoutMs: 200,
+    });
+    await new Promise((resolve) => idle.listen(0, "127.0.0.1", resolve));
+    const idleSockets = [];
+    try {
+      const idlePort = idle.address().port;
+      for (let i = 0; i < 4; i++) {
+        idleSockets.push(await new Promise((resolve, reject) => {
+          const socket = createConnection(idlePort, "127.0.0.1", () => {
+            socket.write("POST /v1/witness/slice HTTP/1.1\r\nHost: witness.test\r\n"
+              + "Content-Type: application/json\r\nContent-Length: 100\r\n\r\n");
+            resolve(socket);
+          });
+          socket.once("error", reject);
+        }));
+      }
+      const answer = await fetch("http://127.0.0.1:" + idlePort + "/v1/witness/slice", {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(good),
+      });
+      check(answer.status === 200, "four idle bodies do not hold the daemon slots");
+      check(idle.requestTimeout === 200 && idle.headersTimeout === 200,
+        "the listener has a short request and header deadline");
+    } finally {
+      for (const socket of idleSockets) socket.destroy();
+      await close(idle);
     }
   } finally {
     await close(witness);

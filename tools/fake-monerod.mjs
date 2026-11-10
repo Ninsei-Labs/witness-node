@@ -25,16 +25,18 @@ function readBody(req) {
   });
 }
 
-export function startFakeDaemon({ host = "0.0.0.0", port = 0, network = "stagenet" } = {}) {
+export function startFakeDaemon({ host = "0.0.0.0", port = 0, network = "stagenet", state = {} } = {}) {
+  const info = () => ({
+    height: 120, synchronized: true, nettype: network, busy: false, busy_syncing: false, untrusted: false,
+    status: "OK", ...state,
+  });
   const server = createServer(async (req, res) => {
     try {
       const body = await readBody(req);
       res.setHeader("content-type", "application/json");
       if (req.url === "/json_rpc") {
         if (body.method === "get_info") {
-          return res.end(JSON.stringify({ jsonrpc: "2.0", id: body.id, result: {
-            height: 120, synchronized: true, nettype: network, busy: false,
-          } }));
+          return res.end(JSON.stringify({ jsonrpc: "2.0", id: body.id, result: info() }));
         }
         if (body.method === "get_block") {
           const height = Number(body.params && body.params.height);

@@ -25,7 +25,7 @@ const daemon = await new Promise((resolve) => {
       const body = raw ? JSON.parse(raw) : {};
       res.setHeader("content-type", "application/json");
       if (req.url === "/json_rpc" && body.method === "get_info") {
-        return res.end(JSON.stringify({ result: { height: 120, synchronized: true } }));
+        return res.end(JSON.stringify({ result: { height: 120, synchronized: true, status: "OK", nettype: "stagenet" } }));
       }
       if (req.url === "/get_transactions") {
         return res.end(JSON.stringify({ txs: [{ tx_hash: TXID, block_height: 105 }], txs_as_json: ['{"version":2}'] }));

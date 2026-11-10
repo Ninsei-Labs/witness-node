@@ -16,12 +16,13 @@ GET  /health
 GET  /metrics          loopback only unless RFQ_WITNESS_METRICS_PUBLISH=1
 GET  /info
 POST /json_rpc          get_info only
-POST /get_transactions  the slice's txids
+POST /get_transactions  1 to 4096 txids
 POST /v1/witness/slice  {version, network, grid, slice}
 ```
 
 The SDK reads the tip and the transaction bodies from the same witness. The slice request contains no order height,
-block, txid or order id.
+block, txid or order id. The slice below the tip is complete; the slice that contains the tip ends at the top block,
+sets `complete: false`, and names that block in `tip`.
 
 `/live` is liveness, `/health` is readiness against the daemon and network, `/metrics` is Prometheus text, and
 `/info` names the protocol and optional operator metadata. The health probe never prints the daemon URL. Metrics
@@ -31,7 +32,7 @@ carry no order data, heights, txids or daemon URL.
 scraper must either share the container network namespace or set `RFQ_WITNESS_METRICS_PUBLISH=1` while keeping the
 port private. Do not forward `/metrics` from the public proxy.
 
-One slice costs 20 daemon calls. The slice and proxy work shares a bounded in-flight ceiling
+One slice costs up to 20 block reads plus one tip read. The slice and proxy work shares a bounded in-flight ceiling
 (`RFQ_WITNESS_MAX_INFLIGHT`, default 4); above it the service answers `503 busy` instead of amplifying load on the
 operator's monerod. The public reverse proxy still needs its own per-client rate limit.
 
@@ -85,8 +86,8 @@ Requirements before exposing it:
 - run the container with `--read-only`, `--cap-drop ALL`, `--security-opt no-new-privileges`, and its built-in UID
   `10001`;
 - keep `RFQ_WITNESS_METRICS_PUBLISH` unset and do not proxy `/metrics` to the public;
-- set `RFQ_WITNESS_ALLOW_ORIGIN` to the exact site origin, not `*`;
-- keep `RFQ_WITNESS_MAX_INFLIGHT` small (the default is `4`; one slice costs 20 daemon calls);
+- set `RFQ_WITNESS_ALLOW_ORIGIN` to the exact site origin when the site is known; `*` is the default for an independent witness;
+- keep `RFQ_WITNESS_MAX_INFLIGHT` small (the default is `4`; one slice costs up to 20 block reads plus one tip read);
 - put `witness.env` outside the repository with mode `0600`; it contains the daemon URL and is not committed.
 
 An example nginx configuration:
@@ -123,6 +124,10 @@ http {
         ssl_session_tickets off;
         ssl_stapling on;
         ssl_stapling_verify on;
+
+        # THE BUCKET IS A PRIVACY SIGNAL. An access log records the caller's IP and the slice index, which is the
+        # link this endpoint exists to avoid. Keep it off for these routes.
+        access_log off;
 
         add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
         add_header X-Content-Type-Options nosniff always;
@@ -227,23 +232,27 @@ docker build -t witness-node:ci .
 bun run check:container
 ```
 
-- `check:slice` drives the reader and HTTP route, including the proxy routes, fixed-grid bounds and malformed
-  answers.
-- `check:teeth` removes the `get_info` and `get_transactions` proxy routes and proves the SDK's first call fails.
+- `check:slice` drives the reader and HTTP route, including the proxy routes, fixed-grid bounds, malformed
+  answers, the partial tip slice, daemon readiness and idle-body timeouts.
+- `check:teeth` removes the `get_info` and `get_transactions` proxy routes and proves the HTTP call fails.
+- `check:workflows` checks the ready-for-review trigger and the publish ancestry, CI, environment and
+  pre-release gates.
 - `check:container` runs the built image against a deterministic stand-in daemon. It verifies the process runs as
   UID/GID `10001`, the root filesystem is read-only, `/health` becomes ready, `/metrics` and `/info` answer, the two
   proxy reads work, and the response contains the exact 20 pinned hashes from
-  `tools/fixtures/stagenet-slice-5.json`. It requires Docker and does not use a real chain.
+  `tools/fixtures/stagenet-slice-5.json`. The fixture is synthetic: its hashes come from the stand-in daemon's
+  height formula, not from a recorded stagenet chain. It requires Docker and does not use a real chain.
 
 ## Security boundary
 
 - No private key, seed, wallet or order state is stored or accepted.
 - The service only reads a Monero daemon. It does not sign or send transactions.
-- `/json_rpc` is restricted to `get_info`. `/get_transactions` accepts only a bounded list of 64-hex txids.
+- `/json_rpc` is restricted to `get_info`. `/get_transactions` accepts 1 to 4096 64-hex txids.
 - CORS is configurable with `RFQ_WITNESS_ALLOW_ORIGIN`; a public test witness may use `*`, a site should name its
   origin.
 - The witness still sees the caller's IP and the 20-block bucket. It does not see the exact order start, payout block,
-  txid or order id.
+  txid or order id. At launch volume a 40-minute bucket can hold about one escrow, so the IP and that escrow are
+  linkable; the exact height is not.
 
 ## Independence
 

@@ -11,9 +11,10 @@
   },
   "scripts": {
     "start": "bun witness-server.mjs",
-    "check": "bun run check:slice && bun run check:teeth",
+    "check": "bun run check:slice && bun run check:teeth && bun run check:workflows",
     "check:slice": "bun tools/check-witness-slice.mjs",
     "check:teeth": "bun tools/check-witness-teeth.mjs",
+    "check:workflows": "bun tools/check-workflows.mjs",
     "check:container": "bun tools/check-container.mjs"
   }
 }
