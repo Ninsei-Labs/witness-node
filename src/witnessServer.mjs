@@ -221,9 +221,9 @@ export function createWitnessServer({
       return send(200, metricsText(current), "text/plain; version=0.0.4; charset=utf-8");
     }
 
-    // ONE SLICE COSTS 20 DAEMON CALLS. Cap the number of work requests in flight so a public caller cannot turn
-    // one witness into an unbounded amplifier against the operator's monerod. The reverse proxy still needs its
-    // own per-client rate limit; this is the last line of defense for the daemon.
+    // ONE SLICE COSTS UP TO 20 BLOCK READS PLUS A TIP READ. Cap the number of work requests in flight so a public
+    // caller cannot turn one witness into an unbounded amplifier against the operator's monerod. The reverse proxy
+    // still needs its own per-client rate limit; this is the last line of defense for the daemon.
     //
     // THE SLOT IS TAKEN AFTER THE BODY IS READ. A caller that sends headers and no body holds no daemon slot;
     // otherwise four idle sockets stop the service for the whole request timeout.
