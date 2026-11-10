@@ -228,6 +228,7 @@ Notes:
 
 ```bash
 bun run check
+SDK_DIR=../sdk bun run check:interop
 docker build -t witness-node:ci .
 bun run check:container
 ```
