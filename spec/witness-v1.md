@@ -98,7 +98,7 @@ heights, txids or the daemon URL. It is loopback-only unless `RFQ_WITNESS_METRIC
 `RFQ_WITNESS_OPERATOR` and `RFQ_WITNESS_CONTACT` values. It never returns private keys, wallet data, the daemon URL or
 the caller's address. The operator and contact are optional because naming an operator is a publication decision.
 
-A container healthcheck should use `/live`; an orchestrator readiness check should use `/health`.
+A container healthcheck uses `/live`; an orchestrator readiness check uses `/health`.
 
 ## Run
 

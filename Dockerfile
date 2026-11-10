@@ -5,6 +5,11 @@
 # rest of the Ninsei services.
 FROM oven/bun:1.4.4-slim@sha256:1846adf22496bd711036aae8be147e57bdebbaea2e5264e3e0b5af1db187d9a4
 
+LABEL org.opencontainers.image.title="witness-node" \
+      org.opencontainers.image.description="Read-only fixed-slice Monero witness for the Ninsei arrival protocol" \
+      org.opencontainers.image.source="https://github.com/Ninsei-Labs/witness-node" \
+      org.opencontainers.image.licenses="MIT"
+
 RUN apt-get update \
   && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates tzdata \
   && rm -rf /var/lib/apt/lists/* \
@@ -29,6 +34,6 @@ USER 10001:10001
 EXPOSE 8796
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD bun -e 'fetch("http://127.0.0.1:8796/live").then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))'
+  CMD bun -e 'fetch("http://127.0.0.1:" + (process.env.RFQ_WITNESS_PORT || 8796) + "/live").then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))'
 
 ENTRYPOINT ["bun", "witness-server.mjs"]

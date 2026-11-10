@@ -1,7 +1,7 @@
 # witness-node
 
 A read-only, fixed-slice Monero witness for the Ninsei arrival protocol. It has no wallet, no signing key, no
-order journal and no maker routes. It reads blocks from one Monero daemon and serves a fixed 20-block slice to a
+order journal and no maker routes. It reads blocks from one Monero daemon. It serves a fixed 20-block slice to a
 client that must not learn the order's exact start or payout height.
 
 ## Protocol
@@ -28,7 +28,7 @@ sets `complete: false`, and names that block in `tip`.
 `/info` names the protocol and optional operator metadata. The health probe never prints the daemon URL. Metrics
 carry no order data, heights, txids or daemon URL.
 
-`/metrics` answers loopback callers by default. In a container the published port arrives through the bridge, so a
+`/metrics` answers loopback callers by default. In a container the published port arrives through the bridge. A
 scraper must either share the container network namespace or set `RFQ_WITNESS_METRICS_PUBLISH=1` while keeping the
 port private. Do not forward `/metrics` from the public proxy.
 
@@ -62,14 +62,14 @@ docker run --rm -p 127.0.0.1:8796:8796 \
 ```
 
 The image runs as UID/GID `10001`, uses a read-only root filesystem in the example compose file, drops capabilities
-and has no write paths. The image is published to GHCR from tags only:
+and has no write paths. The image is published to GHCR from tags only for `linux/amd64`:
 
 ```text
 ghcr.io/ninsei-labs/witness-node:<tag>
 ```
 
-A private repository produces a private package. An independent operator needs access to the package before it can
-pull it.
+The package is published separately from the repository. A public package can be pulled without credentials. A
+private package needs a GitHub token with `read:packages`.
 
 ## Production reverse proxy
 
@@ -210,9 +210,9 @@ Notes:
 - CORS is answered by the witness. Do not add a second `Access-Control-Allow-Origin` in nginx, or browsers will see
   duplicate headers. `OPTIONS` is allowed so the application can answer the preflight.
 - The `/metrics` and `/health` locations are intentionally loopback-only. If nginx and the witness are separate
-  containers, the witness sees nginx's container address, not loopback; put them on a private network and expose the
-  metrics only on that network, or set `RFQ_WITNESS_METRICS_PUBLISH=1` for a private, non-public listener. Do not
-  forward either route through the public server block.
+  containers, the witness sees nginx's container address, not loopback. Put them on a private network.
+- Expose metrics only on that private network, or set `RFQ_WITNESS_METRICS_PUBLISH=1` for a private, non-public
+  listener. Do not forward either route through the public server block.
 - `limit_req_zone` keys on the client address. Behind a CDN or load balancer, configure `real_ip` with that provider's
   trusted ranges; do not trust a client-supplied `X-Forwarded-For` blindly.
 - `proxy_read_timeout 60s` is a starting point. A slice is up to 20 sequential daemon reads; if the daemon is slow,
@@ -241,8 +241,8 @@ bun run check:container
 - `check:interop` fetches a real witness answer and parses it with the SDK's `src/witness-slice.mjs`. Set
   `SDK_DIR` to the SDK checkout; CI checks out `Ninsei-Labs/sdk` on `main`.
 - `check:container` runs the built image against a deterministic stand-in daemon. It verifies the process runs as
-  UID/GID `10001`, the root filesystem is read-only, `/health` becomes ready, `/metrics` and `/info` answer, the two
-  proxy reads work, and the response contains the exact 20 pinned hashes from
+  UID/GID `10001` and the root filesystem is read-only. It also checks that `/health` becomes ready, that `/metrics`
+  and `/info` answer, and that the two proxy reads work. The response must contain the exact 20 pinned hashes from
   `tools/fixtures/stagenet-slice-5.json`. The fixture is synthetic: its hashes come from the stand-in daemon's
   height formula, not from a recorded stagenet chain. It requires Docker and does not use a real chain.
 
@@ -251,7 +251,7 @@ bun run check:container
 - No private key, seed, wallet or order state is stored or accepted.
 - The service only reads a Monero daemon. It does not sign or send transactions.
 - `/json_rpc` is restricted to `get_info`. `/get_transactions` accepts 1 to 4096 64-hex txids.
-- CORS is configurable with `RFQ_WITNESS_ALLOW_ORIGIN`; a public test witness may use `*`, a site should name its
+- CORS is configurable with `RFQ_WITNESS_ALLOW_ORIGIN`. A public test witness can use `*`; a site can name its
   origin.
 - The witness still sees the caller's IP and the 20-block bucket. It does not see the exact order start, payout block,
   txid or order id. At launch volume a 40-minute bucket can hold about one escrow, so the IP and that escrow are
@@ -259,12 +259,12 @@ bun run check:container
 
 ## Independence
 
-Two instances under one operator are one opinion. A production arrival quorum needs separately operated witnesses;
-the local-stand setup with three containers and one daemon is a protocol fixture, not an independence proof.
+Two instances under one operator are one opinion. A production arrival quorum needs separately operated witnesses.
+A local test setup with three containers and one daemon is a protocol fixture, not an independence proof.
 
 ## Changelog
 
-### 0.1.0 - 2026-11-10
+### 0.1.0 (2026-11-10)
 
 First release. The image is published as `ghcr.io/ninsei-labs/witness-node:v0.1.0`.
 

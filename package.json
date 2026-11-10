@@ -5,6 +5,21 @@
   "type": "module",
   "description": "Read-only fixed-slice Monero witness for the Ninsei arrival protocol",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Ninsei-Labs/witness-node.git"
+  },
+  "homepage": "https://github.com/Ninsei-Labs/witness-node#readme",
+  "bugs": {
+    "url": "https://github.com/Ninsei-Labs/witness-node/issues"
+  },
+  "keywords": [
+    "monero",
+    "witness",
+    "privacy",
+    "atomic-swap",
+    "bun"
+  ],
   "packageManager": "bun@1.4.4",
   "engines": {
     "bun": ">=1.4.4"

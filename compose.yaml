@@ -1,7 +1,8 @@
 # EXAMPLE ONLY. Copy next to the service and fill in witness.env.
 #
 # The witness has no volumes and no writable paths. The host publishes it on loopback; a TLS reverse proxy is the
-# public surface. Three local instances are started by the local-stand contour, not here.
+# public surface. This file starts one local instance. For several instances, copy it and change the names and
+# ports.
 services:
   witness:
     # Pin the release tag. The build block is for a local image; never deploy `latest`.
