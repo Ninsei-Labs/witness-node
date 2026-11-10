@@ -278,7 +278,8 @@ export function createWitnessServer({
       const sliceRequest = parseWitnessSliceRequest(body, { network, grid: WITNESS_SLICE_BLOCKS });
       takeSlot();
       const tip = await readDaemonTip({ daemonUrl, network, fetchImpl, timeoutMs });
-      const slice = await readWitnessSlice({ daemonUrl, network, ...sliceRequest, top: tip.top, fetchImpl, timeoutMs });
+      const slice = await readWitnessSlice({ daemonUrl, network, ...sliceRequest, top: tip.top,
+        topHash: tip.topBlockHash, fetchImpl, timeoutMs });
       assertWitnessSliceShape(slice, { network, grid: WITNESS_SLICE_BLOCKS });
       return send(200, slice);
     } catch (error) {

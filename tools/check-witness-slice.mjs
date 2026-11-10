@@ -44,7 +44,8 @@ const daemon = await new Promise((resolve) => {
       calls.push(body);
       if (body.method === "get_info") {
         res.writeHead(200, { "content-type": "application/json" });
-        return res.end(JSON.stringify({ jsonrpc: "2.0", id: body.id, result: { ...daemonState } }));
+        return res.end(JSON.stringify({ jsonrpc: "2.0", id: body.id, result: { ...daemonState,
+          top_block_hash: daemonState.top_block_hash ?? hash(daemonState.height - 1) } }));
       }
       if (body.method !== "get_block" && !Array.isArray(body.txs_hashes)) {
         res.writeHead(400, { "content-type": "application/json" });
@@ -227,6 +228,16 @@ try {
       "a daemon with a non-OK status does not relay transactions");
     daemonState.status = "OK";
 
+    daemonState.height = 115;
+    const behind = await fetch(base + "/v1/witness/slice", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ...good, slice: 7 }),
+    });
+    const behindBody = await behind.json();
+    check(behind.status === 503 && behindBody.code === "not-synchronized",
+      "a slice above the daemon tip is a retryable 503");
+    daemonState.height = 120;
+
     const notProxied = await fetch(base + "/json_rpc", {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ jsonrpc: "2.0", id: "block", method: "get_block", params: { height: 105 } }),
@@ -257,6 +268,17 @@ try {
       "the route serves the tip slice partially instead of refusing it");
     check(tipBody.tip && tipBody.tip.height === 115 && tipBody.tip.hash === tipBody.blocks[15].hash,
       "the partial route answer names the tip hash");
+    daemonState.height = 120;
+
+    daemonState.height = 116;
+    daemonState.top_block_hash = hash(114);
+    const reorgAnswer = await fetch(base + "/v1/witness/slice", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(good),
+    });
+    const reorgBody = await reorgAnswer.json();
+    check(reorgAnswer.status === 502 && reorgBody.code === "bad-daemon-answer",
+      "a tip hash that differs from the last block is a daemon answer refusal");
+    delete daemonState.top_block_hash;
     daemonState.height = 120;
 
     const exact = await fetch(base + "/v1/witness/slice", {

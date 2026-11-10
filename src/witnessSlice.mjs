@@ -104,6 +104,10 @@ export async function readDaemonTip({ daemonUrl, network, fetchImpl = globalThis
   if (!Number.isSafeInteger(height) || height < 0) {
     throw new WitnessSliceError("bad-daemon-answer", { why: "no-height" });
   }
+  const topBlockHash = height > 0 ? hashOf(info && info.top_block_hash) : null;
+  if (height > 0 && !topBlockHash) {
+    throw new WitnessSliceError("bad-daemon-answer", { why: "no-top-hash" });
+  }
   const why =
     info.synchronized !== true ? "not-synchronized" :
     info.busy === true || info.busy_syncing === true ? "busy" :
@@ -111,7 +115,7 @@ export async function readDaemonTip({ daemonUrl, network, fetchImpl = globalThis
     String(info.status || "") !== "OK" ? "status" :
     String(info.nettype || "").toLowerCase() !== String(network || "").toLowerCase() ? "wrong-network" : null;
   if (why) throw new WitnessSliceError("not-synchronized", { why });
-  return { height, top: Math.max(0, height - 1), nettype: String(info.nettype) };
+  return { height, top: Math.max(0, height - 1), topBlockHash, nettype: String(info.nettype) };
 }
 
 /**
@@ -142,7 +146,7 @@ function txidsOf(block) {
  */
 export async function readWitnessSlice({
   daemonUrl, network, slice, grid = WITNESS_SLICE_BLOCKS, fetchImpl = globalThis.fetch, timeoutMs = 8000,
-  top = null,
+  top = null, topHash = null,
 } = {}) {
   if (typeof fetchImpl !== "function") throw new WitnessSliceError("bad-request", { field: "fetch" });
   const bounds = witnessSliceBounds(slice, { grid });
@@ -151,7 +155,7 @@ export async function readWitnessSlice({
     throw new WitnessSliceError("bad-slice", { why: "bad-tip", top });
   }
   if (bounds.from > tipHeight) {
-    throw new WitnessSliceError("bad-slice", { why: "beyond-tip", from: bounds.from, top: tipHeight });
+    throw new WitnessSliceError("not-synchronized", { why: "beyond-tip", from: bounds.from, top: tipHeight });
   }
   // THE TIP SLICE IS PARTIAL. monerod refuses a height above its top, and the client asks for the slice that
   // contains the tip on every walk. Stop at the top and name it, rather than turning a normal tip into a 502.
@@ -164,6 +168,9 @@ export async function readWitnessSlice({
     blocks.push({ height, hash, txids: txidsOf(block) });
   }
   const complete = to === bounds.to;
+  if (topHash && to === tipHeight && blocks[blocks.length - 1].hash !== hashOf(topHash)) {
+    throw new WitnessSliceError("bad-daemon-answer", { why: "top-hash" });
+  }
   return { version: WITNESS_VERSION, network: String(network), ...bounds, to, complete,
     blocks, tip: complete ? null : { height: to, hash: blocks[blocks.length - 1].hash } };
 }

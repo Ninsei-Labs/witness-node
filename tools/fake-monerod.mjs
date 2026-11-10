@@ -25,10 +25,11 @@ function readBody(req) {
   });
 }
 
-export function startFakeDaemon({ host = "0.0.0.0", port = 0, network = "stagenet", state = {} } = {}) {
+export function startFakeDaemon({ host = "0.0.0.0", port = 0, network = "stagenet", state = {}, payout = true, txJson = null } = {}) {
   const info = () => ({
     height: 120, synchronized: true, nettype: network, busy: false, busy_syncing: false, untrusted: false,
     status: "OK", ...state,
+    top_block_hash: state.top_block_hash ?? blockHash(Math.max(0, Number(state.height ?? 120) - 1)),
   });
   const server = createServer(async (req, res) => {
     try {
@@ -46,7 +47,7 @@ export function startFakeDaemon({ host = "0.0.0.0", port = 0, network = "stagene
           }
           return res.end(JSON.stringify({ jsonrpc: "2.0", id: body.id, result: {
             block_header: { height, hash: blockHash(height) },
-            tx_hashes: height === 105 ? [TXID] : [],
+            tx_hashes: payout && height === 105 ? [TXID] : [],
           } }));
         }
         res.statusCode = 400;
@@ -54,7 +55,11 @@ export function startFakeDaemon({ host = "0.0.0.0", port = 0, network = "stagene
       }
       if (req.url === "/get_transactions") {
         const txids = Array.isArray(body.txs_hashes) ? body.txs_hashes : [];
-        return res.end(JSON.stringify({ txs_as_json: txids.map((txid) => JSON.stringify({ txid })), txs: [],
+        if (!payout) return res.end(JSON.stringify({ txs_as_json: [], txs: [], status: state.status || "OK",
+          untrusted: state.untrusted === true }));
+        const bodyJson = txJson === null ? { txid: TXID } : txJson;
+        return res.end(JSON.stringify({ txs_as_json: txids.map(() => JSON.stringify(bodyJson)),
+          txs: txids.map((txid) => ({ tx_hash: txid, block_height: 105, confirmations: 16 })),
           status: state.status || "OK", untrusted: state.untrusted === true }));
       }
       res.statusCode = 404;
