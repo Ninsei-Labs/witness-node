@@ -16,6 +16,7 @@ const problems = [];
 const check = (condition, message) => { if (condition) console.log("  ok    " + message); else problems.push(message); };
 const TXID = "ab".repeat(32);
 const hash = (height) => String(height).padStart(64, "0");
+let daemonUntrusted = false;
 
 const daemon = await new Promise((resolve) => {
   const server = createServer((req, res) => {
@@ -29,7 +30,7 @@ const daemon = await new Promise((resolve) => {
       }
       if (req.url === "/get_transactions") {
         return res.end(JSON.stringify({ txs: [{ tx_hash: TXID, block_height: 105 }], txs_as_json: ['{"version":2}'],
-          status: "OK", untrusted: false }));
+          status: "OK", untrusted: daemonUntrusted }));
       }
       res.statusCode = 404;
       res.end(JSON.stringify({ error: "unexpected" }));
@@ -72,6 +73,18 @@ try {
     check(txs.status === 200, "the shipped server answers get_transactions");
   } finally { await close(actual.server); }
 
+  const noReadiness = await mutated("no-untrusted-guard",
+    "if (answer && answer.untrusted === true) {", "if (false) {");
+  const noReadinessServer = await serve(noReadiness);
+  try {
+    daemonUntrusted = true;
+    const answer = await call(noReadinessServer.url, "/get_transactions", { txs_hashes: [TXID], decode_as_json: true });
+    check(answer.status === 200, "removing the untrusted guard lets an untrusted daemon relay transactions");
+  } finally {
+    daemonUntrusted = false;
+    await close(noReadinessServer.server);
+  }
+
   const noInfo = await mutated("no-info", 'if (req.method === "POST" && req.url === "/json_rpc") {', "if (false) {");
   const noInfoServer = await serve(noInfo);
   try {
@@ -95,4 +108,4 @@ if (problems.length) {
   console.log("FAILED: " + problems.length + " problem(s)");
   process.exit(1);
 }
-console.log("witness teeth: 4 checks passed");
+console.log("witness teeth: 5 checks passed");
