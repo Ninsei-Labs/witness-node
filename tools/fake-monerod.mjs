@@ -29,6 +29,7 @@ export function startFakeDaemon({ host = "0.0.0.0", port = 0, network = "stagene
   const info = () => ({
     height: 120, synchronized: true, nettype: network, busy: false, busy_syncing: false, untrusted: false,
     status: "OK", ...state,
+    top_block_hash: state.top_block_hash ?? blockHash(Math.max(0, Number(state.height ?? 120) - 1)),
   });
   const server = createServer(async (req, res) => {
     try {
