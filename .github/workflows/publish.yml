@@ -94,4 +94,3 @@ jobs:
         env:
           IMAGE: ghcr.io/ninsei-labs/witness-node
         run: docker buildx imagetools create -t "$IMAGE:latest" "$IMAGE:${GITHUB_REF_NAME}"
-
