@@ -44,7 +44,7 @@ Response:
 
 A slice below the daemon tip has exactly `grid` blocks. The heights are consecutive. Each block has a 64-hex hash and an array of transaction ids. The array is empty for an empty block. A missing block or a malformed hash is a refusal.
 
-The slice that contains the daemon tip is partial. Its `to` is the top block. `complete` is `false`, and `tip` names that block with its height and hash. The client accepts `complete: false` only for the last slice of its walk. It also requires `tip.height` to equal the top it read. The walk never asks for a height above the tip, and absence is counted only up to it.
+The slice that contains the daemon tip is partial. Its `to` is the top block. `complete` is `false`, and `tip` names that block with its height and hash. The client accepts `complete: false` only for the last slice of its walk. The `tip.height` must not be below the top the client read. A higher tip is a block that arrived during the walk, and it is accepted. A lower tip is refused. The walk never asks for a height above the tip, and absence is counted only up to it.
 
 ## Why a slice
 
