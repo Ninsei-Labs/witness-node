@@ -227,6 +227,16 @@ try {
       "a daemon with a non-OK status does not relay transactions");
     daemonState.status = "OK";
 
+    daemonState.height = 115;
+    const behind = await fetch(base + "/v1/witness/slice", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ...good, slice: 7 }),
+    });
+    const behindBody = await behind.json();
+    check(behind.status === 503 && behindBody.code === "not-synchronized",
+      "a slice above the daemon tip is a retryable 503");
+    daemonState.height = 120;
+
     const notProxied = await fetch(base + "/json_rpc", {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ jsonrpc: "2.0", id: "block", method: "get_block", params: { height: 105 } }),

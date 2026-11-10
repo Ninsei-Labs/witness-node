@@ -44,7 +44,7 @@ Response:
 
 A slice below the daemon tip has exactly `grid` blocks. The heights are consecutive. Each block has a 64-hex hash and an array of transaction ids. The array is empty for an empty block. A missing block or a malformed hash is a refusal.
 
-The slice that contains the daemon tip is partial. Its `to` is the top block. `complete` is `false`, and `tip` names that block with its height and hash. The client accepts `complete: false` only for the last slice of its walk. The `tip.height` must not be below the top the client read. A higher tip is a block that arrived during the walk, and it is accepted. A lower tip is refused. The walk never asks for a height above the tip, and absence is counted only up to it.
+The slice that contains the daemon tip is partial. Its `to` is the top block. `complete` is `false`, and `tip` names that block with its height and hash. The client accepts `complete: false` only for the last slice of its walk. The `tip.height` must not be below the top the client read. A higher tip is a block that arrived during the walk, and it is accepted. A lower tip is refused. The walk never asks for a height above the tip, and absence is counted only up to it. A slice that starts above the daemon top is refused with `503 not-synchronized`: the witness is behind the caller, and the caller can retry.
 
 ## Why a slice
 
@@ -140,9 +140,9 @@ The service refuses to start without `RFQ_XMR_DAEMON`.
 | `bad-version` | 400 | `version` is not 1 |
 | `wrong-network` | 400 | the request names another network |
 | `bad-grid` | 400 | `grid` is not 20 |
-| `bad-slice` | 400 | `slice` is not a safe non-negative integer, or the slice starts above the daemon tip |
+| `bad-slice` | 400 | `slice` is not a safe non-negative integer |
 | `daemon-unavailable` | 503 | the Monero daemon did not answer |
-| `not-synchronized` | 503 | the daemon is behind, busy, untrusted, not OK or on another network |
+| `not-synchronized` | 503 | the daemon is behind, busy, untrusted, not OK or on another network; also a requested slice that starts above the daemon tip |
 | `busy` | 503 | the in-flight daemon-work ceiling is full |
 | `bad-daemon-answer` | 502 | the daemon returned a malformed or inconsistent slice |
 

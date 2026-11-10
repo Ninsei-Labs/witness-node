@@ -151,7 +151,7 @@ export async function readWitnessSlice({
     throw new WitnessSliceError("bad-slice", { why: "bad-tip", top });
   }
   if (bounds.from > tipHeight) {
-    throw new WitnessSliceError("bad-slice", { why: "beyond-tip", from: bounds.from, top: tipHeight });
+    throw new WitnessSliceError("not-synchronized", { why: "beyond-tip", from: bounds.from, top: tipHeight });
   }
   // THE TIP SLICE IS PARTIAL. monerod refuses a height above its top, and the client asks for the slice that
   // contains the tip on every walk. Stop at the top and name it, rather than turning a normal tip into a 502.
