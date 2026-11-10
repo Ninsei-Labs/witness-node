@@ -143,6 +143,25 @@ try {
   await rejects(() => assertWitnessSliceShape({ ...tipSlice, tip: { ...tipSlice.tip, hash: hash(119) } }, { network: "stagenet" }),
     "bad-daemon-answer", "a partial slice whose tip hash does not match its last block is refused");
 
+  const rpcErrorFetch = async () => ({ ok: true, json: async () => ({ error: { message: "daemon refused" } }) });
+  await rejects(() => readWitnessSlice({ daemonUrl: "http://127.0.0.1:1", network: "stagenet", slice: 5, top: 119,
+    fetchImpl: rpcErrorFetch, timeoutMs: 50 }), "bad-daemon-answer", "a daemon RPC error is not an empty slice");
+
+  const slowFetch = (url, init) => new Promise((resolve, reject) => {
+    if (init.signal) init.signal.addEventListener("abort", () => reject(Object.assign(new Error("aborted"), { name: "AbortError" })));
+  });
+  await rejects(() => readWitnessSlice({ daemonUrl: "http://127.0.0.1:1", network: "stagenet", slice: 5, top: 119,
+    fetchImpl: slowFetch, timeoutMs: 10 }), "daemon-unavailable", "a daemon call that exceeds its deadline is refused");
+
+  let dyingCalls = 0;
+  const dyingFetch = async () => {
+    dyingCalls += 1;
+    if (dyingCalls > 2) throw new Error("daemon socket closed");
+    return { ok: true, json: async () => ({ result: { block_header: { hash: hash(100 + dyingCalls) }, tx_hashes: [] } }) };
+  };
+  await rejects(() => readWitnessSlice({ daemonUrl: "http://127.0.0.1:1", network: "stagenet", slice: 5, top: 119,
+    fetchImpl: dyingFetch, timeoutMs: 50 }), "daemon-unavailable", "a daemon that dies mid-slice does not become empty blocks");
+
   const witness = createWitnessServer({
     network: "stagenet", daemonUrl: daemon.url, operator: "Local Operator", contact: "ops@example.test",
   });
@@ -249,6 +268,30 @@ try {
       body: JSON.stringify({ txs_hashes: ["not-a-txid"], decode_as_json: true }),
     });
     check(badTxids.status === 400, "a malformed txid list is refused");
+
+    const noTxids = await fetch(base + "/get_transactions", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ decode_as_json: true }),
+    });
+    check(noTxids.status === 400, "a request without tx_hashes is refused");
+
+    const emptyTxids = await fetch(base + "/get_transactions", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ txs_hashes: [] }),
+    });
+    check(emptyTxids.status === 400, "an empty txid list is refused");
+
+    const tooMany = Array.from({ length: 4097 }, () => TXID);
+    const overCap = await fetch(base + "/get_transactions", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ txs_hashes: tooMany }),
+    });
+    check(overCap.status === 400, "more than 4096 txids is refused");
+
+    const oversizedProxy = await fetch(base + "/get_transactions", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ txs_hashes: [TXID], padding: "x".repeat(520 * 1024) }),
+    });
+    const oversizedBody = await oversizedProxy.json();
+    check(oversizedProxy.status === 400 && oversizedBody.params && oversizedBody.params.why === "body-too-large",
+      "an oversized transaction request is refused before the daemon");
 
     const answer = await fetch(base + "/v1/witness/slice", {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(good),
