@@ -262,6 +262,16 @@ bun run check:container
 Two instances under one operator are one opinion. A production arrival quorum needs separately operated witnesses;
 the local-stand setup with three containers and one daemon is a protocol fixture, not an independence proof.
 
+## Changelog
+
+### 0.1.0 - 2026-11-10
+
+First release. The image is published as `ghcr.io/ninsei-labs/witness-node:v0.1.0`.
+
+- The fixed-slice endpoint serves a partial tip slice and names its top block.
+- Readiness gates the daemon state on health, tip and slice routes.
+- The publish job requires main ancestry, a passed check and provenance.
+
 ## License
 
 MIT. See [`LICENSE`](LICENSE).
