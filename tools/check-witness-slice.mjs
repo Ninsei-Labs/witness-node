@@ -144,6 +144,14 @@ try {
   await rejects(() => assertWitnessSliceShape({ ...tipSlice, tip: { ...tipSlice.tip, hash: hash(119) } }, { network: "stagenet" }),
     "bad-daemon-answer", "a partial slice whose tip hash does not match its last block is refused");
 
+  const missingTxHashes = async () => ({
+    ok: true,
+    json: async () => ({ result: { block_header: { hash: hash(100) } } }),
+  });
+  await rejects(() => readWitnessSlice({ daemonUrl: "http://127.0.0.1:1", network: "stagenet", slice: 5, top: 119,
+    fetchImpl: missingTxHashes, timeoutMs: 50 }), "bad-daemon-answer",
+  "a daemon answer without tx_hashes is refused");
+
   const rpcErrorFetch = async () => ({ ok: true, json: async () => ({ error: { message: "daemon refused" } }) });
   await rejects(() => readWitnessSlice({ daemonUrl: "http://127.0.0.1:1", network: "stagenet", slice: 5, top: 119,
     fetchImpl: rpcErrorFetch, timeoutMs: 50 }), "bad-daemon-answer", "a daemon RPC error is not an empty slice");
