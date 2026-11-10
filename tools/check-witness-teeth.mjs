@@ -28,7 +28,8 @@ const daemon = await new Promise((resolve) => {
         return res.end(JSON.stringify({ result: { height: 120, synchronized: true, status: "OK", nettype: "stagenet" } }));
       }
       if (req.url === "/get_transactions") {
-        return res.end(JSON.stringify({ txs: [{ tx_hash: TXID, block_height: 105 }], txs_as_json: ['{"version":2}'] }));
+        return res.end(JSON.stringify({ txs: [{ tx_hash: TXID, block_height: 105 }], txs_as_json: ['{"version":2}'],
+          status: "OK", untrusted: false }));
       }
       res.statusCode = 404;
       res.end(JSON.stringify({ error: "unexpected" }));

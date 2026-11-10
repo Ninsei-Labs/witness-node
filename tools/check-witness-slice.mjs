@@ -52,7 +52,8 @@ const daemon = await new Promise((resolve) => {
       }
       if (Array.isArray(body.txs_hashes)) {
         res.writeHead(200, { "content-type": "application/json" });
-        return res.end(JSON.stringify({ txs: [{ tx_hash: TXID, block_height: 105 }], txs_as_json: ['{"version":2}'] }));
+        return res.end(JSON.stringify({ txs: [{ tx_hash: TXID, block_height: 105 }], txs_as_json: ['{"version":2}'],
+          status: daemonState.status, untrusted: daemonState.untrusted }));
       }
       const height = Number(body.params.height);
       if (height < 100 || height > 119) {
@@ -197,6 +198,34 @@ try {
     const txsBody = await txs.json();
     check(txs.status === 200 && Array.isArray(txsBody.txs_as_json) && txsBody.txs_as_json.length === 1,
       "the witness proxies the slice's transactions");
+
+    daemonState.untrusted = true;
+    const untrustedTx = await fetch(base + "/get_transactions", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ txs_hashes: [TXID], decode_as_json: true }),
+    });
+    const untrustedBody = await untrustedTx.json();
+    check(untrustedTx.status === 503 && untrustedBody.code === "not-synchronized",
+      "an untrusted daemon does not relay transactions");
+    daemonState.untrusted = false;
+
+    daemonState.status = "BUSY";
+    const busyTx = await fetch(base + "/get_transactions", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ txs_hashes: [TXID], decode_as_json: true }),
+    });
+    const busyBody = await busyTx.json();
+    check(busyTx.status === 503 && busyBody.code === "busy",
+      "a busy daemon does not relay transactions");
+    daemonState.status = "ERROR";
+    const failedTx = await fetch(base + "/get_transactions", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ txs_hashes: [TXID], decode_as_json: true }),
+    });
+    const failedBody = await failedTx.json();
+    check(failedTx.status === 502 && failedBody.code === "bad-daemon-answer",
+      "a daemon with a non-OK status does not relay transactions");
+    daemonState.status = "OK";
 
     const notProxied = await fetch(base + "/json_rpc", {
       method: "POST", headers: { "content-type": "application/json" },

@@ -22,7 +22,8 @@ POST /v1/witness/slice  {version, network, grid, slice}
 
 The SDK reads the tip and the transaction bodies from the same witness. The slice request contains no order height,
 block, txid or order id. The slice below the tip is complete; the slice that contains the tip ends at the top block,
-sets `complete: false`, and names that block in `tip`.
+sets `complete: false`, and names that block in `tip`. `/get_transactions` refuses an untrusted daemon with
+`503 not-synchronized`, a busy daemon with `503 busy`, and any other non-OK status with `502 bad-daemon-answer`.
 
 `/live` is liveness, `/health` is readiness against the daemon and network, `/metrics` is Prometheus text, and
 `/info` names the protocol and optional operator metadata. The health probe never prints the daemon URL. Metrics

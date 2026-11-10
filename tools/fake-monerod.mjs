@@ -54,7 +54,8 @@ export function startFakeDaemon({ host = "0.0.0.0", port = 0, network = "stagene
       }
       if (req.url === "/get_transactions") {
         const txids = Array.isArray(body.txs_hashes) ? body.txs_hashes : [];
-        return res.end(JSON.stringify({ txs_as_json: txids.map((txid) => JSON.stringify({ txid })), txs: [] }));
+        return res.end(JSON.stringify({ txs_as_json: txids.map((txid) => JSON.stringify({ txid })), txs: [],
+          status: state.status || "OK", untrusted: state.untrusted === true }));
       }
       res.statusCode = 404;
       res.end("{}");
