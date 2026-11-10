@@ -10,6 +10,7 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { createConnection } from "node:net";
+import { networkInterfaces } from "node:os";
 import { createWitnessServer, isLoopbackAddress, listenHostFromEnv, listenPortFromEnv } from "../src/witnessServer.mjs";
 import {
   WITNESS_SLICE_BLOCKS, WitnessSliceError,
@@ -210,6 +211,24 @@ try {
       "metrics expose the witness identity");
     check(metricsBody.includes('route="/health"'), "metrics count requests by route");
     check(!metricsBody.includes(daemon.url), "metrics do not leak the daemon URL");
+
+    // A NON-LOOPBACK CALLER MUST NOT READ METRICS. The check is conditional on a second interface being present;
+    // a host with loopback only cannot make the assertion and says so instead of passing silently.
+    const lan = Object.values(networkInterfaces()).flat()
+      .find((address) => address && address.family === "IPv4" && address.internal === false);
+    if (!lan) console.log("  skip  a non-loopback metrics caller (no second IPv4 interface)");
+    else {
+      const exposed = createWitnessServer({ network: "stagenet", daemonUrl: daemon.url });
+      await new Promise((resolve) => exposed.listen(0, "0.0.0.0", resolve));
+      try {
+        const remote = await fetch("http://" + lan.address + ":" + exposed.address().port + "/metrics");
+        check(remote.status === 403, "a non-loopback caller does not read metrics");
+      } catch {
+        console.log("  skip  a non-loopback metrics caller (the interface is not reachable)");
+      } finally {
+        await close(exposed);
+      }
+    }
 
     const txs = await fetch(base + "/get_transactions", {
       method: "POST", headers: { "content-type": "application/json" },
