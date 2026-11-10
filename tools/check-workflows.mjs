@@ -8,6 +8,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+const PUBLISH_SDK_PIN = "20515404f5546680ba609b71074d977bd2444196";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const check = readFileSync(join(ROOT, ".github", "workflows", "check.yml"), "utf8");
 const publish = readFileSync(join(ROOT, ".github", "workflows", "publish.yml"), "utf8");
@@ -59,6 +60,7 @@ function findings(checkText, publishText) {
   need(checkText, "github.event.pull_request.draft == false",
     "check.yml does not skip a draft pull request");
   need(checkText, "repository: Ninsei-Labs/sdk", "check.yml does not check out the SDK client");
+  need(checkText, "ref: " + PUBLISH_SDK_PIN, "check.yml does not pin the SDK commit");
   need(checkText, "run: bun run check:interop", "check.yml does not run the SDK/witness interop check");
   ordered(checkText, "Check out the SDK client", "Build the image",
     "check.yml builds before checking out the SDK client");
@@ -73,6 +75,7 @@ function findings(checkText, publishText) {
   need(publishText, "actions/workflows/check.yml/runs", "publish.yml does not read the tagged commit's CI run");
   need(publishText, "state\" != success", "publish.yml does not refuse a CI run that did not pass");
   need(publishText, "repository: Ninsei-Labs/sdk", "publish.yml does not check out the SDK client");
+  need(publishText, "ref: " + PUBLISH_SDK_PIN, "publish.yml does not pin the SDK commit");
   need(publishText, "run: bun run check:interop", "publish.yml does not run the SDK/witness interop check");
   need(publishText, "--provenance=true", "publish.yml publishes without provenance");
   need(publishText, "!contains(github.ref_name, '-')", "publish.yml moves latest for a pre-release");
@@ -135,6 +138,7 @@ const mutations = [
   ["actions/workflows/check.yml/runs", "", "publish.yml does not read the tagged commit's CI run"],
   ["state\" != success", "", "publish.yml does not refuse a CI run that did not pass"],
   ["repository: Ninsei-Labs/sdk", "", "check.yml does not check out the SDK client"],
+  ["ref: " + PUBLISH_SDK_PIN, "ref: main", "check.yml does not pin the SDK commit"],
   ["run: bun run check:interop", "", "check.yml does not run the SDK/witness interop check"],
   ["--provenance=true", "", "publish.yml publishes without provenance"],
   ["!contains(github.ref_name, '-')", "", "publish.yml moves latest for a pre-release"],
