@@ -38,6 +38,16 @@ jobs:
         with:
           bun-version: 1.4.4
 
+      - name: Version must match the tag
+        run: |
+          set -eu
+          pkg=$(bun -p 'require("./package.json").version')
+          tag="${GITHUB_REF_NAME#v}"
+          if [ "$pkg" != "$tag" ]; then
+            echo "package.json says $pkg, the tag says $tag" >&2
+            exit 1
+          fi
+
       # A VERSION IS PUBLISHED ONLY FROM A COMMIT ON MAIN WHOSE CHECK PASSED. The check run is read for the exact
       # tagged commit; a queued or running run is read again for at most 20 minutes, then anything but success
       # refuses before the image is built.

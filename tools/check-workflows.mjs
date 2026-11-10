@@ -20,6 +20,7 @@ function findings(checkText, publishText) {
   need(checkText, "github.event.pull_request.draft == false",
     "check.yml does not skip a draft pull request");
   need(publishText, "environment: publish", "publish.yml has no protected environment");
+  need(publishText, "Version must match the tag", "publish.yml does not check the package version against the tag");
   need(publishText, "fetch-depth: 0", "publish.yml cannot prove ancestry without history");
   need(publishText, "git merge-base --is-ancestor", "publish.yml does not require the tagged commit on main");
   need(publishText, "actions/workflows/check.yml/runs", "publish.yml does not read the tagged commit's CI run");
@@ -42,6 +43,7 @@ const mutations = [
   ["types: [opened, synchronize, reopened, ready_for_review]", "", "check.yml does not start on ready_for_review"],
   ["github.event.pull_request.draft == false", "", "check.yml does not skip a draft pull request"],
   ["environment: publish", "", "publish.yml has no protected environment"],
+  ["Version must match the tag", "", "publish.yml does not check the package version against the tag"],
   ["fetch-depth: 0", "", "publish.yml cannot prove ancestry without history"],
   ["git merge-base --is-ancestor", "", "publish.yml does not require the tagged commit on main"],
   ["actions/workflows/check.yml/runs", "", "publish.yml does not read the tagged commit's CI run"],
