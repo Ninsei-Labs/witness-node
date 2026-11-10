@@ -260,6 +260,15 @@ export function createWitnessServer({
         takeSlot();
         const answer = await daemonDirect(daemonUrl, "/get_transactions",
           { txs_hashes: txids.map((txid) => String(txid).replace(/^0x/, "")), decode_as_json: true }, fetchImpl, timeoutMs);
+        // THE SAME READINESS RULE AS THE SLICE. `/get_transactions` is the second daemon-backed route the SDK
+        // needs, and its answer carries `status` and `untrusted`; a bootstrap or restricted daemon must not relay
+        // transaction bodies with 200. No extra get_info call is needed.
+        const answerStatus = String((answer && answer.status) || "");
+        if (answer && answer.untrusted === true) {
+          throw new WitnessSliceError("not-synchronized", { why: "untrusted" });
+        }
+        if (answerStatus === "BUSY") throw new WitnessSliceError("busy", { retryAfterSec: 1 });
+        if (answerStatus !== "OK") throw new WitnessSliceError("bad-daemon-answer", { why: "status" });
         return send(200, answer);
       }
       if (req.method !== "POST" || req.url !== "/v1/witness/slice") {

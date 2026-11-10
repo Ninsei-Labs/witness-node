@@ -74,7 +74,9 @@ witness.
 The SDK needs the witness tip and the transaction bodies of the slice it just received. The service proxies exactly
 those two reads to its daemon: `/json_rpc` accepts only `get_info`, and `/get_transactions` accepts 1 to 4096 txids in
 one bounded list. The service is stateless, so it cannot tell whether a txid came from a slice answer. Neither route
-names an order, and neither turns the service into an arbitrary daemon proxy.
+names an order, and neither turns the service into an arbitrary daemon proxy. `/get_transactions` applies the same
+readiness rule from the daemon answer: `untrusted: true` is `503 not-synchronized`, `status: "BUSY"` is `503 busy`, and
+any other non-OK status is `502 bad-daemon-answer`.
 
 ## Operational endpoints
 
