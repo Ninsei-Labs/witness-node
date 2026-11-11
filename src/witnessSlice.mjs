@@ -132,7 +132,13 @@ function hashOf(value) {
 
 function txidsOf(block) {
   const list = Array.isArray(block && block.tx_hashes) ? block.tx_hashes : null;
-  if (!list) throw new WitnessSliceError("bad-daemon-answer", { why: "no-tx-hashes" });
+  if (!list) {
+    // monerod omits tx_hashes when the block has no transactions besides the coinbase. That is an empty
+    // block, not a broken answer: the header says num_txes = 0. Any other missing field is still refused.
+    const numTxes = block && block.block_header && block.block_header.num_txes;
+    if (numTxes === 0) return [];
+    throw new WitnessSliceError("bad-daemon-answer", { why: "no-tx-hashes" });
+  }
   return list.map((value) => {
     const txid = hashOf(value);
     if (!txid) throw new WitnessSliceError("bad-daemon-answer", { why: "bad-txid" });
