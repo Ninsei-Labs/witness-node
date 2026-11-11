@@ -6,7 +6,7 @@
 services:
   witness:
     # Pin the release tag. The build block is for a local image; never deploy `latest`.
-    image: ghcr.io/ninsei-labs/witness-node:v0.1.0
+    image: ghcr.io/ninsei-labs/witness-node:v0.1.1
     build:
       context: .
       dockerfile: Dockerfile
