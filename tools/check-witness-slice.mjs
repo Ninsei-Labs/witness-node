@@ -63,8 +63,12 @@ const daemon = await new Promise((resolve) => {
         return res.end(JSON.stringify({ error: { message: "wrong height" } }));
       }
       res.writeHead(200, { "content-type": "application/json" });
+      const empty = height === 106;
       const answer = JSON.stringify({
-        result: { block_header: { hash: hash(height) }, tx_hashes: height === 105 ? [TXID] : [] },
+        result: {
+          block_header: { hash: hash(height), num_txes: empty ? 0 : (height === 105 ? 1 : 0) },
+          ...(empty ? {} : { tx_hashes: height === 105 ? [TXID] : [] }),
+        },
       });
       if (daemonDelayMs) return setTimeout(() => res.end(answer), daemonDelayMs);
       res.end(answer);
@@ -109,6 +113,7 @@ try {
   check(slice.complete === true && slice.tip === null, "a slice below the tip is complete and names no partial tip");
   check(slice.blocks[0].height === 100 && slice.blocks[19].height === 119, "the slice starts and ends on the grid");
   check(slice.blocks[5].txids.length === 1 && slice.blocks[5].txids[0] === TXID, "a block keeps its transactions");
+  check(slice.blocks[6].txids.length === 0, "an empty block without tx_hashes is accepted by num_txes: 0");
   const blockCalls = calls.filter((call) => call.method === "get_block");
   check(blockCalls.length === 20 && blockCalls.every((call) => call.method === "get_block"), "the daemon is asked for blocks only");
   check(blockCalls.map((call) => call.params.height).join(",") === Array.from({ length: 20 }, (_, i) => 100 + i).join(","),
@@ -150,7 +155,15 @@ try {
   });
   await rejects(() => readWitnessSlice({ daemonUrl: "http://127.0.0.1:1", network: "stagenet", slice: 5, top: 119,
     fetchImpl: missingTxHashes, timeoutMs: 50 }), "bad-daemon-answer",
-  "a daemon answer without tx_hashes is refused");
+  "a daemon answer without tx_hashes or num_txes is refused");
+
+  const missingTxHashesWithTxes = async () => ({
+    ok: true,
+    json: async () => ({ result: { block_header: { hash: hash(100), num_txes: 1 } } }),
+  });
+  await rejects(() => readWitnessSlice({ daemonUrl: "http://127.0.0.1:1", network: "stagenet", slice: 5, top: 119,
+    fetchImpl: missingTxHashesWithTxes, timeoutMs: 50 }), "bad-daemon-answer",
+  "a daemon answer without tx_hashes but with transactions is refused");
 
   const rpcErrorFetch = async () => ({ ok: true, json: async () => ({ error: { message: "daemon refused" } }) });
   await rejects(() => readWitnessSlice({ daemonUrl: "http://127.0.0.1:1", network: "stagenet", slice: 5, top: 119,

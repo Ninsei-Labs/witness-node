@@ -45,9 +45,10 @@ export function startFakeDaemon({ host = "0.0.0.0", port = 0, network = "stagene
             res.statusCode = 400;
             return res.end(JSON.stringify({ error: { message: "height outside fixture" } }));
           }
+          const hasTx = payout && height === 105;
           return res.end(JSON.stringify({ jsonrpc: "2.0", id: body.id, result: {
-            block_header: { height, hash: blockHash(height) },
-            tx_hashes: payout && height === 105 ? [TXID] : [],
+            block_header: { height, hash: blockHash(height), num_txes: hasTx ? 1 : 0 },
+            ...(hasTx ? { tx_hashes: [TXID] } : {}),
           } }));
         }
         res.statusCode = 400;
