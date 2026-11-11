@@ -30,6 +30,19 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.4
+
+      - name: Name the image labels
+        id: labels
+        run: |
+          set -eu
+          version="$(bun -p 'require("./package.json").version')"
+          test -n "$version"
+          commit="$(git rev-parse HEAD)"
+          date="$(git show -s --format=%cI HEAD)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+          echo "date=$date" >> "$GITHUB_OUTPUT"
+
       - name: Run the witness checks
         run: bun run check
       - name: Run the SDK/witness interop check
@@ -37,6 +50,24 @@ jobs:
           SDK_DIR: ${{ github.workspace }}/sdk-client
         run: bun run check:interop
       - name: Build the image
-        run: docker build --pull -t witness-node:ci .
+        run: |
+          docker build --pull \
+            --build-arg VERSION="${{ steps.labels.outputs.version }}" \
+            --build-arg BUILD_COMMIT="${{ steps.labels.outputs.commit }}" \
+            --build-arg BUILD_DATE="${{ steps.labels.outputs.date }}" \
+            -t witness-node:ci .
+      - name: The image labels name this service
+        env:
+          VERSION: ${{ steps.labels.outputs.version }}
+          COMMIT: ${{ steps.labels.outputs.commit }}
+          DATE: ${{ steps.labels.outputs.date }}
+        run: |
+          set -eu
+          label() { docker image inspect witness-node:ci --format "{{ index .Config.Labels \"$1\" }}"; }
+          test "$(label org.opencontainers.image.version)" = "$VERSION"
+          test "$(label org.opencontainers.image.revision)" = "$COMMIT"
+          test "$(label org.opencontainers.image.created)" = "$DATE"
+          test "$(label org.opencontainers.image.url)" = "https://github.com/Ninsei-Labs/witness-node"
+          test "$(label org.opencontainers.image.title)" = "witness-node"
       - name: Run the container smoke
         run: bun run check:container

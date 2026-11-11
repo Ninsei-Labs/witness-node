@@ -48,6 +48,17 @@ jobs:
             exit 1
           fi
 
+      - name: Name the image labels
+        id: labels
+        run: |
+          set -eu
+          version="${GITHUB_REF_NAME#v}"
+          commit="$(git rev-parse HEAD)"
+          date="$(git show -s --format=%cI HEAD)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+          echo "date=$date" >> "$GITHUB_OUTPUT"
+
       # A VERSION IS PUBLISHED ONLY FROM A COMMIT ON MAIN WHOSE CHECK PASSED. The check run is read for the exact
       # tagged commit; a queued or running run is read again for at most 20 minutes, then anything but success
       # refuses before the image is built.
@@ -88,7 +99,26 @@ jobs:
         run: bun run check:interop
 
       - name: Build the image for the smoke
-        run: docker build --pull -t witness-node:ci .
+        run: |
+          docker build --pull \
+            --build-arg VERSION="${{ steps.labels.outputs.version }}" \
+            --build-arg BUILD_COMMIT="${{ steps.labels.outputs.commit }}" \
+            --build-arg BUILD_DATE="${{ steps.labels.outputs.date }}" \
+            -t witness-node:ci .
+
+      - name: The image labels name this service
+        env:
+          VERSION: ${{ steps.labels.outputs.version }}
+          COMMIT: ${{ steps.labels.outputs.commit }}
+          DATE: ${{ steps.labels.outputs.date }}
+        run: |
+          set -eu
+          label() { docker image inspect witness-node:ci --format "{{ index .Config.Labels \"$1\" }}"; }
+          test "$(label org.opencontainers.image.version)" = "$VERSION"
+          test "$(label org.opencontainers.image.revision)" = "$COMMIT"
+          test "$(label org.opencontainers.image.created)" = "$DATE"
+          test "$(label org.opencontainers.image.url)" = "https://github.com/Ninsei-Labs/witness-node"
+          test "$(label org.opencontainers.image.title)" = "witness-node"
 
       - name: Run the container smoke
         run: bun run check:container
@@ -107,6 +137,9 @@ jobs:
           set -eu
           docker buildx create --use --name witness-publish >/dev/null 2>&1 || docker buildx use witness-publish
           docker buildx build --pull --push --provenance=true --sbom=true \
+            --build-arg VERSION="${{ steps.labels.outputs.version }}" \
+            --build-arg BUILD_COMMIT="${{ steps.labels.outputs.commit }}" \
+            --build-arg BUILD_DATE="${{ steps.labels.outputs.date }}" \
             --tag "$IMAGE:${GITHUB_REF_NAME}" .
 
       # A PRE-RELEASE NEVER MOVES latest. Only a tag without a pre-release suffix is a release.
