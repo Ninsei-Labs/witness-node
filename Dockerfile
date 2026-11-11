@@ -5,10 +5,20 @@
 # rest of the Ninsei services.
 FROM oven/bun:1.4.4-slim@sha256:1846adf22496bd711036aae8be147e57bdebbaea2e5264e3e0b5af1db187d9a4
 
+# THE LABELS NAME THIS SERVICE, NOT THE BUN BASE IMAGE. Docker inherits the base labels unless every product
+# label is overridden; without these the image reports Bun's version, commit and build date.
+ARG VERSION=dev
+ARG BUILD_COMMIT=
+ARG BUILD_DATE=unknown
+
 LABEL org.opencontainers.image.title="witness-node" \
       org.opencontainers.image.description="Read-only fixed-slice Monero witness for the Ninsei arrival protocol" \
       org.opencontainers.image.source="https://github.com/Ninsei-Labs/witness-node" \
-      org.opencontainers.image.licenses="MIT"
+      org.opencontainers.image.url="https://github.com/Ninsei-Labs/witness-node" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${BUILD_COMMIT}" \
+      org.opencontainers.image.created="${BUILD_DATE}"
 
 RUN apt-get update \
   && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates tzdata \
