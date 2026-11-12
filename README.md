@@ -265,6 +265,13 @@ A local test setup with three containers and one daemon is a protocol fixture, n
 
 ## Changelog
 
+### 0.1.2 (2026-11-12)
+
+The package version and the compose pin are both `0.1.2`.
+
+- A version gate now compares `package.json`, the compose image tag and the release tag before any image build.
+- The gate runs in the check workflow and in the publish workflow, so a mismatch stops before `docker build`.
+
 ### 0.1.0 (2026-11-10)
 
 First release. The image is published as `ghcr.io/ninsei-labs/witness-node:v0.1.0`.
