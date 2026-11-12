@@ -61,7 +61,10 @@ function findings(checkText, publishText) {
     "check.yml does not skip a draft pull request");
   need(checkText, "repository: Ninsei-Labs/sdk", "check.yml does not check out the SDK client");
   need(checkText, "ref: " + PUBLISH_SDK_PIN, "check.yml does not pin the SDK commit");
-  need(checkText, "run: bun run check:interop", "check.yml does not run the SDK/witness interop check");
+  need(checkText, "Run the SDK/witness interop check", "check.yml does not run the SDK/witness interop check");
+  need(checkText, "Versions must agree before a build", "check.yml has no version agreement gate");
+  ordered(checkText, "Versions must agree before a build", "Build the image",
+    "check.yml builds before checking that the versions agree");
   ordered(checkText, "Check out the SDK client", "Build the image",
     "check.yml builds before checking out the SDK client");
   ordered(checkText, "Run the witness checks", "Build the image",
@@ -76,6 +79,9 @@ function findings(checkText, publishText) {
   need(publishText, "state\" != success", "publish.yml does not refuse a CI run that did not pass");
   need(publishText, "repository: Ninsei-Labs/sdk", "publish.yml does not check out the SDK client");
   need(publishText, "ref: " + PUBLISH_SDK_PIN, "publish.yml does not pin the SDK commit");
+  need(publishText, "Versions must agree before a build", "publish.yml has no version agreement gate");
+  ordered(publishText, "Versions must agree before a build", "Push the tagged image with provenance",
+    "publish.yml pushes before checking that the versions agree");
   need(publishText, "run: bun run check:interop", "publish.yml does not run the SDK/witness interop check");
   need(publishText, "--provenance=true", "publish.yml publishes without provenance");
   need(publishText, "!contains(github.ref_name, '-')", "publish.yml moves latest for a pre-release");
@@ -139,7 +145,8 @@ const mutations = [
   ["state\" != success", "", "publish.yml does not refuse a CI run that did not pass"],
   ["repository: Ninsei-Labs/sdk", "", "check.yml does not check out the SDK client"],
   ["ref: " + PUBLISH_SDK_PIN, "ref: main", "check.yml does not pin the SDK commit"],
-  ["run: bun run check:interop", "", "check.yml does not run the SDK/witness interop check"],
+  ["run: bun run check:interop", "", "publish.yml does not run the SDK/witness interop check"],
+  ["Versions must agree before a build", "Version check missing", "check.yml has no version agreement gate"],
   ["--provenance=true", "", "publish.yml publishes without provenance"],
   ["!contains(github.ref_name, '-')", "", "publish.yml moves latest for a pre-release"],
   ["imagetools create -t \"$IMAGE:latest\"", "", "publish.yml does not move latest to the tagged digest"],

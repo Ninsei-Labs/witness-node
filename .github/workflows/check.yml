@@ -31,6 +31,9 @@ jobs:
         with:
           bun-version: 1.4.4
 
+      - name: Versions must agree before a build
+        run: bun tools/check-version.mjs
+
       - name: Name the image labels
         id: labels
         run: |

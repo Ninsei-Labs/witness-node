@@ -38,6 +38,9 @@ jobs:
         with:
           bun-version: 1.4.4
 
+      - name: Versions must agree before a build
+        run: bun tools/check-version.mjs
+
       - name: Version must match the tag
         run: |
           set -eu

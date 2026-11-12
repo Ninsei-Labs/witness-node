@@ -1,6 +1,6 @@
 {
   "name": "@ninsei-labs/witness-node",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "private": true,
   "type": "module",
   "description": "Read-only fixed-slice Monero witness for the Ninsei arrival protocol",
@@ -26,7 +26,8 @@
   },
   "scripts": {
     "start": "bun witness-server.mjs",
-    "check": "bun run check:slice && bun run check:teeth && bun run check:workflows",
+    "check": "bun run check:version && bun run check:slice && bun run check:teeth && bun run check:workflows",
+    "check:version": "bun tools/check-version.mjs",
     "check:slice": "bun tools/check-witness-slice.mjs",
     "check:teeth": "bun tools/check-witness-teeth.mjs",
     "check:workflows": "bun tools/check-workflows.mjs",
