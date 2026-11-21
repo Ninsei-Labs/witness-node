@@ -20,9 +20,9 @@
     "atomic-swap",
     "bun"
   ],
-  "packageManager": "bun@1.4.4",
+  "packageManager": "bun@1.4.5",
   "engines": {
-    "bun": ">=1.4.4"
+    "bun": ">=1.4.5"
   },
   "scripts": {
     "start": "bun witness-server.mjs",
