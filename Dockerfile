@@ -3,7 +3,7 @@
 # The service is read-only: no keys, no journal, no wallet and no write paths. The runtime is the Debian-based Bun
 # slim image, the same version the tests run under. The image user is an image contract (10001:10001), matching the
 # rest of the Ninsei services.
-FROM oven/bun:1.4.4-slim@sha256:1846adf22496bd711036aae8be147e57bdebbaea2e5264e3e0b5af1db187d9a4
+FROM oven/bun:1.4.5-slim@sha256:b780593f3e10918cbdaec3d5a08d52224b9198069a65eb47812085c2ec007643
 
 # THE LABELS NAME THIS SERVICE, NOT THE BUN BASE IMAGE. Docker inherits the base labels unless every product
 # label is overridden; without these the image reports Bun's version, commit and build date.
