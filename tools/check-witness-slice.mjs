@@ -30,7 +30,6 @@ const rejects = async (fn, code, message) => {
 const hash = (height) => String(height).padStart(64, "0");
 const TXID = "ab".repeat(32);
 const calls = [];
-let daemonDelayMs = 0;
 const daemonState = {
   height: 120, synchronized: true, nettype: "stagenet", busy: false, busy_syncing: false,
   untrusted: false, status: "OK", version: "0.18.5.4", peers: 3,
@@ -70,7 +69,6 @@ const daemon = await new Promise((resolve) => {
           ...(empty ? {} : { tx_hashes: height === 105 ? [TXID] : [] }),
         },
       });
-      if (daemonDelayMs) return setTimeout(() => res.end(answer), daemonDelayMs);
       res.end(answer);
     });
   });
@@ -119,6 +117,34 @@ try {
   check(blockCalls.map((call) => call.params.height).join(",") === Array.from({ length: 20 }, (_, i) => 100 + i).join(","),
     "the daemon sees the whole slice, not one order height");
   assertWitnessSliceShape(slice, { network: "stagenet" });
+
+  // Synthetic monerod heights: height counts blocks, so slice 5 starts at the tip when height is 101.
+  for (const [height, blockHeights] of [[100, []], [101, [100]], [102, [100, 101]]]) {
+    daemonState.height = height;
+    calls.length = 0;
+    if (blockHeights.length === 0) {
+      await assert.rejects(() => readWitnessSlice({ daemonUrl: daemon.url, network: "stagenet", slice: 5 }),
+        (error) => error instanceof WitnessSliceError && error.code === "not-synchronized"
+          && error.params.why === "beyond-tip" && error.params.from === 100 && error.params.top === 99);
+    } else {
+      const atTip = await readWitnessSlice({ daemonUrl: daemon.url, network: "stagenet", slice: 5 });
+      assert.equal(atTip.blocks.length, blockHeights.length, "every available block is returned");
+      assert.deepEqual(atTip.blocks, blockHeights.map((height) => ({ height, hash: hash(height), txids: [] })));
+      assert.deepEqual({ version: atTip.version, network: atTip.network, grid: atTip.grid, slice: atTip.slice,
+        from: atTip.from, to: atTip.to, complete: atTip.complete, tip: atTip.tip },
+      { version: 1, network: "stagenet", grid: 20, slice: 5, from: 100, to: height - 1,
+        complete: false, tip: { height: height - 1, hash: hash(height - 1) } });
+      assertWitnessSliceShape(atTip, { network: "stagenet" });
+    }
+    assert.deepEqual(calls.filter((call) => call.method === "get_block").map((call) => call.params.height),
+      blockHeights, "only existing heights are requested, including the tip itself");
+    calls.length = 0;
+    await assert.rejects(() => readWitnessSlice({ daemonUrl: daemon.url, network: "stagenet", slice: 6 }),
+      (error) => error instanceof WitnessSliceError && error.code === "not-synchronized"
+        && error.params.why === "beyond-tip" && error.params.from === 120 && error.params.top === height - 1);
+    assert.equal(calls.filter((call) => call.method === "get_block").length, 0, "no block read beyond the tip");
+  }
+  check(true, "slice start below, at and above the tip preserves its blocks and refuses the next slice");
 
   daemonState.height = 116;
   calls.length = 0;
@@ -342,6 +368,24 @@ try {
     check(body.blocks.length === 20 && body.blocks[0].height === 100, "the route returns the requested slice");
     check(body.complete === true && body.to === 119, "the route marks a slice below the tip complete");
 
+    daemonState.height = 101;
+    const firstTipAnswer = await fetch(base + "/v1/witness/slice", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(good),
+    });
+    const firstTipBody = await firstTipAnswer.json();
+    assert.equal(firstTipAnswer.status, 200, "a slice starting at the tip is available through HTTP");
+    assert.deepEqual(firstTipBody, { version: 1, network: "stagenet", grid: 20, slice: 5,
+      from: 100, to: 100, complete: false, blocks: [{ height: 100, hash: hash(100), txids: [] }],
+      tip: { height: 100, hash: hash(100) } });
+    const nextTipAnswer = await fetch(base + "/v1/witness/slice", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...good, slice: 6 }),
+    });
+    assert.equal(nextTipAnswer.status, 503);
+    const nextTipBody = await nextTipAnswer.json();
+    assert.equal(nextTipBody.code, "not-synchronized");
+    assert.deepEqual(nextTipBody.params, { why: "beyond-tip", from: 120, top: 100 });
+    check(true, "HTTP serves the one-block tip slice and names the next slice's beyond-tip refusal");
+
     daemonState.height = 116;
     const tipAnswer = await fetch(base + "/v1/witness/slice", {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(good),
@@ -430,24 +474,48 @@ try {
       await close(stateServer);
     }
 
-    daemonDelayMs = 25;
-    const limited = createWitnessServer({ network: "stagenet", daemonUrl: daemon.url, maxInflight: 1 });
+    // The first block read holds a real server slot until explicitly released. No clock race decides busy.
+    let blockStarted, releaseBlock;
+    const started = new Promise((resolve) => { blockStarted = resolve; });
+    const released = new Promise((resolve) => { releaseBlock = resolve; });
+    let held = false;
+    const limited = createWitnessServer({ network: "stagenet", daemonUrl: daemon.url, maxInflight: 1,
+      fetchImpl: async (url, init) => {
+        const request = JSON.parse(init.body);
+        if (!held && request.method === "get_block") {
+          held = true;
+          blockStarted();
+          await released;
+        }
+        return fetch(url, init);
+      },
+    });
     await new Promise((resolve) => limited.listen(0, "127.0.0.1", resolve));
+    let firstRequest;
     try {
       const limitedBase = "http://127.0.0.1:" + limited.address().port;
-      const firstRequest = fetch(limitedBase + "/v1/witness/slice", {
+      const requestSlice = () => fetch(limitedBase + "/v1/witness/slice", {
         method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(good),
       });
-      await new Promise((resolve) => setTimeout(resolve, 30));
-      const second = await fetch(limitedBase + "/v1/witness/slice", {
-        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(good),
-      });
+      firstRequest = requestSlice();
+      await Promise.race([started, firstRequest.then(() => { throw new Error("first slice ended before the block gate"); })]);
+      const beforeSecond = calls.length;
+      const second = await requestSlice();
       const secondBody = await second.json();
+      check(second.status === 503 && secondBody.code === "busy",
+        "the in-flight ceiling refuses work while the first block read is held");
+      check(calls.length === beforeSecond, "the refused request does not amplify daemon work");
+      releaseBlock();
       const first = await firstRequest;
-      check(first.status === 200 && second.status === 503 && secondBody.code === "busy",
-        "the in-flight ceiling refuses work instead of amplifying the daemon");
+      const firstBody = await first.json();
+      check(first.status === 200 && firstBody.blocks.length === 20 && firstBody.complete === true,
+        "releasing the block gate lets the first slice complete");
+      const afterRelease = await requestSlice();
+      check(afterRelease.status === 200, "the completed request releases its daemon slot");
+      await afterRelease.arrayBuffer();
     } finally {
-      daemonDelayMs = 0;
+      releaseBlock();
+      if (firstRequest) await firstRequest.catch(() => {});
       await close(limited);
     }
 
