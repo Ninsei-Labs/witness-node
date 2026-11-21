@@ -63,6 +63,11 @@ export function startFakeDaemon({ host = "0.0.0.0", port = 0, network = "stagene
           txs: txids.map((txid) => ({ tx_hash: txid, block_height: 105, confirmations: 16 })),
           status: state.status || "OK", untrusted: state.untrusted === true }));
       }
+      if (req.url === "/get_transaction_pool_hashes") {
+        // THE SDK READS THE WHOLE POOL BEFORE IT CAN DECLARE ABSENCE. A fixture daemon that omits this route makes
+        // the SDK correctly answer "unknown", so the interop check must model a synced node with an empty mempool.
+        return res.end(JSON.stringify({ tx_hashes: state.poolHashes ?? [] }));
+      }
       res.statusCode = 404;
       res.end("{}");
     } catch {
