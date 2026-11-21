@@ -265,6 +265,14 @@ A local test setup with three containers and one daemon is a protocol fixture, n
 
 ## Changelog
 
+### 0.1.3 (2026-11-21)
+
+The package version and the compose pin are both `0.1.3`.
+
+- The service runs on Bun 1.4.5, with the slim base image pinned to its multi-platform digest.
+- The slice checks cover tip equality and hold the in-flight ceiling behind an explicit gate instead of a timing race.
+- The fake daemon answers an empty transaction pool, keeping the SDK interop fixture current.
+
 ### 0.1.2 (2026-11-12)
 
 The package version and the compose pin are both `0.1.2`.
