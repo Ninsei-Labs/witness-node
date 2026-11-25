@@ -13,10 +13,10 @@ Routes:
 ```text
 GET  /live
 GET  /health
-GET  /metrics          loopback only unless RFQ_WITNESS_METRICS_PUBLISH=1
+GET  /metrics          loopback only unless WITNESS_METRICS_PUBLISH=1
 GET  /info
-POST /json_rpc          get_info; get_block only with RFQ_WITNESS_ALLOW_GET_BLOCK=1
-POST /get_transaction_pool_hashes  only with RFQ_WITNESS_ALLOW_GET_BLOCK=1
+POST /json_rpc          get_info; get_block only with WITNESS_ALLOW_GET_BLOCK=1
+POST /get_transaction_pool_hashes  on by default; WITNESS_ALLOW_POOL=0 turns it off
 POST /get_transactions  1 to 4096 txids
 POST /v1/witness/slice  {version, network, grid, slice}
 ```
@@ -28,34 +28,38 @@ sets `complete: false`, and names that block in `tip`. Each slice block carries 
 `/get_transactions` refuses an untrusted daemon with `503 not-synchronized`, a busy daemon with `503 busy`, and any
 other non-OK status with `502 bad-daemon-answer`.
 
-`RFQ_WITNESS_ALLOW_GET_BLOCK=1` is off by default. It adds a narrow exact-height `get_block` compatibility method and
-the global `/get_transaction_pool_hashes` route needed by the recovery reader. The block answer carries only
-`block_header` and `tx_hashes`, never the daemon `blob`. Do not enable it on the public slice endpoint: an exact height
-names the order's start or payout block.
+`WITNESS_ALLOW_GET_BLOCK=1` is off by default. It adds a narrow exact-height `get_block` compatibility method. The
+block answer carries only `block_header` and `tx_hashes`, never the daemon `blob`. Do not enable it on the public slice
+endpoint: an exact height names the order's start or payout block.
+
+`/get_transaction_pool_hashes` is a global, order-independent pool list and is **on by default**. Set
+`WITNESS_ALLOW_POOL=0` to turn it off. It is a separate switch from exact-height `get_block`; a public operator can
+keep the pool route while leaving exact-height reads disabled.
 
 `/live` is liveness, `/health` is readiness against the daemon and network, `/metrics` is Prometheus text, and
 `/info` names the protocol and optional operator metadata. The health probe never prints the daemon URL. Metrics
 carry no order data, heights, txids or daemon URL.
 
 `/metrics` answers loopback callers by default. In a container the published port arrives through the bridge. A
-scraper must either share the container network namespace or set `RFQ_WITNESS_METRICS_PUBLISH=1` while keeping the
+scraper must either share the container network namespace or set `WITNESS_METRICS_PUBLISH=1` while keeping the
 port private. Do not forward `/metrics` from the public proxy.
 
 One slice costs up to 20 block reads plus one tip read. The slice and proxy work shares a bounded in-flight ceiling
-(`RFQ_WITNESS_MAX_INFLIGHT`, default 4); above it the service answers `503 busy` instead of amplifying load on the
+(`WITNESS_MAX_INFLIGHT`, default 4); above it the service answers `503 busy` instead of amplifying load on the
 operator's monerod. The public reverse proxy still needs its own per-client rate limit.
 
 ## Run with Bun
 
 ```bash
-RFQ_XMR_DAEMON=http://127.0.0.1:38081 \
-RFQ_WITNESS_NETWORK=stagenet \
-RFQ_WITNESS_HOST=127.0.0.1 \
-RFQ_WITNESS_PORT=8796 \
+WITNESS_XMR_DAEMON=http://127.0.0.1:38081 \
+WITNESS_NETWORK=stagenet \
+WITNESS_HOST=127.0.0.1 \
+WITNESS_PORT=8796 \
 bun witness-server.mjs
 ```
 
-Settings are in [`witness.env.example`](witness.env.example). `RFQ_XMR_DAEMON` is required.
+Settings are in [`witness.env.example`](witness.env.example). `WITNESS_XMR_DAEMON` is required. The old
+`RFQ_XMR_DAEMON` and `RFQ_WITNESS_*` names are read as deprecated aliases and will be removed in 1.0.0.
 
 `8796` is the default port. `8795` is used by the documented screen-hook example, so it is not the witness default.
 
@@ -64,9 +68,9 @@ Settings are in [`witness.env.example`](witness.env.example). `RFQ_XMR_DAEMON` i
 ```bash
 docker build -t witness-node .
 docker run --rm -p 127.0.0.1:8796:8796 \
-  -e RFQ_XMR_DAEMON=http://host.docker.internal:38081 \
-  -e RFQ_WITNESS_NETWORK=stagenet \
-  -e RFQ_WITNESS_ALLOW_ORIGIN=https://swap.example \
+  -e WITNESS_XMR_DAEMON=http://host.docker.internal:38081 \
+  -e WITNESS_NETWORK=stagenet \
+  -e WITNESS_ALLOW_ORIGIN=https://swap.example \
   witness-node
 ```
 
@@ -94,9 +98,9 @@ Requirements before exposing it:
 - bind `monerod` RPC to `127.0.0.1` or a private Docker network and firewall the RPC port;
 - run the container with `--read-only`, `--cap-drop ALL`, `--security-opt no-new-privileges`, and its built-in UID
   `10001`;
-- keep `RFQ_WITNESS_METRICS_PUBLISH` unset and do not proxy `/metrics` to the public;
-- set `RFQ_WITNESS_ALLOW_ORIGIN` to the exact site origin when the site is known; `*` is the default for an independent witness;
-- keep `RFQ_WITNESS_MAX_INFLIGHT` small (the default is `4`; one slice costs up to 20 block reads plus one tip read);
+- keep `WITNESS_METRICS_PUBLISH` unset and do not proxy `/metrics` to the public;
+- set `WITNESS_ALLOW_ORIGIN` to the exact site origin when the site is known; `*` is the default for an independent witness;
+- keep `WITNESS_MAX_INFLIGHT` small (the default is `4`; one slice costs up to 20 block reads plus one tip read);
 - put `witness.env` outside the repository with mode `0600`; it contains the daemon URL and is not committed.
 
 An example nginx configuration:
@@ -220,7 +224,7 @@ Notes:
   duplicate headers. `OPTIONS` is allowed so the application can answer the preflight.
 - The `/metrics` and `/health` locations are intentionally loopback-only. If nginx and the witness are separate
   containers, the witness sees nginx's container address, not loopback. Put them on a private network.
-- Expose metrics only on that private network, or set `RFQ_WITNESS_METRICS_PUBLISH=1` for a private, non-public
+- Expose metrics only on that private network, or set `WITNESS_METRICS_PUBLISH=1` for a private, non-public
   listener. Do not forward either route through the public server block.
 - `limit_req_zone` keys on the client address. Behind a CDN or load balancer, configure `real_ip` with that provider's
   trusted ranges; do not trust a client-supplied `X-Forwarded-For` blindly.
@@ -260,7 +264,7 @@ bun run check:container
 - No private key, seed, wallet or order state is stored or accepted.
 - The service only reads a Monero daemon. It does not sign or send transactions.
 - `/json_rpc` is restricted to `get_info`. `/get_transactions` accepts 1 to 4096 64-hex txids.
-- CORS is configurable with `RFQ_WITNESS_ALLOW_ORIGIN`. A public test witness can use `*`; a site can name its
+- CORS is configurable with `WITNESS_ALLOW_ORIGIN`. A public test witness can use `*`; a site can name its
   origin.
 - The witness still sees the caller's IP and the 20-block bucket. It does not see the exact order start, payout block,
   txid or order id. At launch volume a 40-minute bucket can hold about one escrow, so the IP and that escrow are
