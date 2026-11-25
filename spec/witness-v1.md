@@ -121,8 +121,6 @@ The service is `witness-server.mjs` in this tree.
 ```bash
 WITNESS_XMR_DAEMON=http://127.0.0.1:38081 \
 WITNESS_NETWORK=stagenet \
-WITNESS_HOST=127.0.0.1 \
-WITNESS_PORT=8796 \
 bun witness-server.mjs
 ```
 
@@ -131,8 +129,8 @@ Optional settings:
 | Variable | Default | Meaning |
 |---|---|---|
 | `WITNESS_NETWORK` | `stagenet` | network named in every answer |
-| `WITNESS_HOST` | `127.0.0.1` | listen address; a public deployment uses a proxy or `0.0.0.0` |
-| `WITNESS_PORT` | `8796` | listen port; 8795 is the documented screen-hook example |
+| `WITNESS_DEFAULT_HOST` | `127.0.0.1` | listen address; the image default is `0.0.0.0` |
+| `WITNESS_DEFAULT_PORT` | `8796` | listen port; 8795 is the documented screen-hook example |
 | `WITNESS_ALLOW_ORIGIN` | `*` | CORS allow origin |
 | `WITNESS_TIMEOUT_MS` | `8000` | per-daemon request deadline |
 | `WITNESS_OPERATOR` | unset | optional public operator name in `/info` and metrics |

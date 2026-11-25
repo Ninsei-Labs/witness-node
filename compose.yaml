@@ -13,9 +13,6 @@ services:
     container_name: witness-node
     env_file:
       - ./witness.env
-    environment:
-      WITNESS_HOST: 0.0.0.0
-      WITNESS_PORT: "8796"
     ports:
       - "127.0.0.1:8796:8796"
     read_only: true

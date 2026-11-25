@@ -6,8 +6,8 @@
 //
 // Optional:
 //   WITNESS_NETWORK          mainnet | stagenet | testnet (default: stagenet)
-//   WITNESS_HOST             127.0.0.1 (default) or 0.0.0.0 when placed behind the public proxy
-//   WITNESS_PORT             8796 (default; 8795 is the documented screen-hook example)
+//   WITNESS_DEFAULT_HOST     127.0.0.1 (default) or 0.0.0.0 when placed behind the public proxy
+//   WITNESS_DEFAULT_PORT     8796 (default; 8795 is the documented screen-hook example)
 //   WITNESS_ALLOW_ORIGIN     CORS origin for the browser SDK (default: *)
 //   WITNESS_TIMEOUT_MS       per-daemon request deadline (default: 8000)
 //   WITNESS_OPERATOR         optional public operator name for /info
