@@ -61,14 +61,29 @@ export function daemonBaseUrl(daemonUrl) {
   return text.replace(/\/json_rpc\/?$/i, "").replace(/\/+$/, "");
 }
 
-async function request(daemonUrl, path, body, fetchImpl, timeoutMs) {
+export function boundSignal(timeoutMs, parent = null) {
+  const timeout = AbortSignal.timeout(timeoutMs);
+  if (!parent) return timeout;
+  if (typeof AbortSignal.any === "function") return AbortSignal.any([parent, timeout]);
+  const controller = new AbortController();
+  const abort = (signal) => {
+    if (!controller.signal.aborted) controller.abort(signal.reason);
+  };
+  for (const signal of [parent, timeout]) {
+    if (signal.aborted) abort(signal);
+    else signal.addEventListener("abort", () => abort(signal), { once: true });
+  }
+  return controller.signal;
+}
+
+async function request(daemonUrl, path, body, fetchImpl, timeoutMs, signal = null) {
   let response;
   try {
     response = await fetchImpl(daemonBaseUrl(daemonUrl) + path, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
-      signal: typeof AbortSignal !== "undefined" && AbortSignal.timeout ? AbortSignal.timeout(timeoutMs) : undefined,
+      signal: boundSignal(timeoutMs, signal),
     });
   } catch (error) {
     throw new WitnessSliceError("daemon-unavailable", { why: String((error && error.name) || "network").slice(0, 40) });
@@ -87,8 +102,8 @@ async function request(daemonUrl, path, body, fetchImpl, timeoutMs) {
  * A JSON-RPC read. Only the method the caller names is sent; the witness server exposes this for `get_info`
  * and refuses every other method, so the proxy does not become an arbitrary daemon client.
  */
-export async function daemonJsonRpc(daemonUrl, method, params = {}, fetchImpl = globalThis.fetch, timeoutMs = 8000) {
-  const answer = await request(daemonUrl, "/json_rpc", { jsonrpc: "2.0", id: "witness", method, params }, fetchImpl, timeoutMs);
+export async function daemonJsonRpc(daemonUrl, method, params = {}, fetchImpl = globalThis.fetch, timeoutMs = 8000, signal = null) {
+  const answer = await request(daemonUrl, "/json_rpc", { jsonrpc: "2.0", id: "witness", method, params }, fetchImpl, timeoutMs, signal);
   if (!answer || !answer.result) throw new WitnessSliceError("bad-daemon-answer", { why: "no-result" });
   return answer.result;
 }
@@ -98,8 +113,8 @@ export async function daemonJsonRpc(daemonUrl, method, params = {}, fetchImpl = 
  * witness: its height is not evidence that a payment is absent. `/health`, `/json_rpc` and the slice route use this
  * read. `height` is the next block monerod will mine; the reachable top is one lower.
  */
-export async function readDaemonTip({ daemonUrl, network, fetchImpl = globalThis.fetch, timeoutMs = 8000 } = {}) {
-  const info = await daemonJsonRpc(daemonUrl, "get_info", {}, fetchImpl, timeoutMs);
+export async function readDaemonTip({ daemonUrl, network, fetchImpl = globalThis.fetch, timeoutMs = 8000, signal = null } = {}) {
+  const info = await daemonJsonRpc(daemonUrl, "get_info", {}, fetchImpl, timeoutMs, signal);
   const height = Number(info && info.height);
   if (!Number.isSafeInteger(height) || height < 0) {
     throw new WitnessSliceError("bad-daemon-answer", { why: "no-height" });
@@ -121,8 +136,8 @@ export async function readDaemonTip({ daemonUrl, network, fetchImpl = globalThis
 /**
  * A direct daemon route. The witness uses it for `/get_transactions`, whose request is the whole slice's txids.
  */
-export async function daemonDirect(daemonUrl, path, body, fetchImpl = globalThis.fetch, timeoutMs = 8000) {
-  return request(daemonUrl, path, body, fetchImpl, timeoutMs);
+export async function daemonDirect(daemonUrl, path, body, fetchImpl = globalThis.fetch, timeoutMs = 8000, signal = null) {
+  return request(daemonUrl, path, body, fetchImpl, timeoutMs, signal);
 }
 
 /**
@@ -130,8 +145,8 @@ export async function daemonDirect(daemonUrl, path, body, fetchImpl = globalThis
  * fields the recovery reader checks, not the daemon's blob or unrestricted body. This keeps the exact-height mode
  * narrow and makes turning it on a visible deployment choice.
  */
-export async function readGetBlockCompat({ daemonUrl, height, fetchImpl = globalThis.fetch, timeoutMs = 8000 }) {
-  const block = await daemonJsonRpc(daemonUrl, "get_block", { height }, fetchImpl, timeoutMs);
+export async function readGetBlockCompat({ daemonUrl, height, fetchImpl = globalThis.fetch, timeoutMs = 8000, signal = null }) {
+  const block = await daemonJsonRpc(daemonUrl, "get_block", { height }, fetchImpl, timeoutMs, signal);
   const header = block && block.block_header;
   const hash = hashOf(header && header.hash);
   if (!hash) throw new WitnessSliceError("bad-daemon-answer", { why: "no-block-hash", height });
@@ -191,11 +206,11 @@ function txidsOf(block) {
  */
 export async function readWitnessSlice({
   daemonUrl, network, slice, grid = WITNESS_SLICE_BLOCKS, fetchImpl = globalThis.fetch, timeoutMs = 8000,
-  top = null, topHash = null,
+  top = null, topHash = null, signal = null,
 } = {}) {
   if (typeof fetchImpl !== "function") throw new WitnessSliceError("bad-request", { field: "fetch" });
   const bounds = witnessSliceBounds(slice, { grid });
-  const tipHeight = top === null ? (await readDaemonTip({ daemonUrl, network, fetchImpl, timeoutMs })).top : Number(top);
+  const tipHeight = top === null ? (await readDaemonTip({ daemonUrl, network, fetchImpl, timeoutMs, signal })).top : Number(top);
   if (!Number.isSafeInteger(tipHeight) || tipHeight < 0) {
     throw new WitnessSliceError("bad-slice", { why: "bad-tip", top });
   }
@@ -207,7 +222,7 @@ export async function readWitnessSlice({
   const to = Math.min(bounds.to, tipHeight);
   const blocks = [];
   for (let height = bounds.from; height <= to; height++) {
-    const block = await daemonJsonRpc(daemonUrl, "get_block", { height }, fetchImpl, timeoutMs);
+    const block = await daemonJsonRpc(daemonUrl, "get_block", { height }, fetchImpl, timeoutMs, signal);
     const header = block && block.block_header;
     const hash = hashOf(header && header.hash);
     if (!hash) throw new WitnessSliceError("bad-daemon-answer", { why: "no-block-hash", height });

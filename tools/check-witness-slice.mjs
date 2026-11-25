@@ -681,6 +681,77 @@ try {
       await close(limited);
     }
 
+    // A CLIENT THAT LEAVES MUST LEAVE THE DAEMON ALONE. The first get_block is held inside the fake fetch; the
+    // client aborts; the wrapper must see the same signal, stop at one block read, and release the slot.
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    const heldServer = (extra = {}) => {
+      let blockCalls = 0;
+      let held = false;
+      let start;
+      let releaseGate;
+      const started = new Promise((resolve) => { start = resolve; });
+      const gate = new Promise((resolve) => { releaseGate = resolve; });
+      const server = createWitnessServer({
+        network: "stagenet", daemonUrl: daemon.url, maxInflight: 1, ...extra,
+        fetchImpl: async (url, init) => {
+          const request = JSON.parse(init.body);
+          if (request.method !== "get_block") return fetch(url, init);
+          blockCalls += 1;
+          if (!held) {
+            held = true;
+            start();
+            await new Promise((resolve, reject) => {
+              const abort = () => reject(Object.assign(new Error("aborted"), { name: "AbortError" }));
+              if (init.signal && init.signal.aborted) abort();
+              else if (init.signal) init.signal.addEventListener("abort", abort, { once: true });
+              gate.then(resolve);
+            });
+          }
+          return fetch(url, init);
+        },
+      });
+      return { server, started, release: releaseGate, blockCalls: () => blockCalls };
+    };
+
+    const canceled = heldServer();
+    await new Promise((resolve) => canceled.server.listen(0, "127.0.0.1", resolve));
+    try {
+      const cancelBase = "http://127.0.0.1:" + canceled.server.address().port;
+      const client = new AbortController();
+      const first = fetch(cancelBase + "/v1/witness/slice", {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(good),
+        signal: client.signal,
+      }).catch((error) => error);
+      await Promise.race([canceled.started, sleep(1000).then(() => { throw new Error("the block gate never opened"); })]);
+      client.abort();
+      await Promise.race([first, sleep(1000).then(() => { throw new Error("the aborted slice did not return"); })]);
+      await sleep(30);
+      check(canceled.blockCalls() === 1, "a client abort stops the slice at the held block read");
+      const afterCancel = await fetch(cancelBase + "/v1/witness/slice", {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(good),
+      });
+      check(afterCancel.status === 200, "the aborted request releases its daemon slot");
+      await afterCancel.arrayBuffer();
+    } finally {
+      canceled.release();
+      await close(canceled.server);
+    }
+
+    const timedOut = heldServer({ sliceDeadlineMs: 100 });
+    await new Promise((resolve) => timedOut.server.listen(0, "127.0.0.1", resolve));
+    try {
+      const timeoutBase = "http://127.0.0.1:" + timedOut.server.address().port;
+      const answer = await fetch(timeoutBase + "/v1/witness/slice", {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(good),
+      });
+      check(answer.status === 503, "the total slice deadline refuses a daemon read that never answers");
+      check(timedOut.blockCalls() === 1, "the total slice deadline stops after the held block read");
+      await answer.arrayBuffer();
+    } finally {
+      timedOut.release();
+      await close(timedOut.server);
+    }
+
     const idle = createWitnessServer({
       network: "stagenet", daemonUrl: daemon.url, maxInflight: 1, requestTimeoutMs: 200, headersTimeoutMs: 200,
     });
