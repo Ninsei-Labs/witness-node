@@ -59,7 +59,6 @@ async function json(url, init) {
 }
 
 let container = "";
-let aliasContainer = "";
 let daemon;
 let failure;
 try {
@@ -146,48 +145,13 @@ try {
   }
   assert.equal(dockerHealth, "healthy", "the image healthcheck turns healthy");
 
-  // THE DEPRECATED NAMES MUST WORK IN THE IMAGE, NOT JUST IN THE CODE. With no WITNESS_HOST/PORT in the image,
-  // only the RFQ_ aliases are set here; the listener must bind and serve.
-  const aliasPort = await freePort();
-  const aliasBase = "http://127.0.0.1:" + aliasPort;
-  aliasContainer = docker([
-    "run", "-d", "--name", NAME + "-alias",
-    "--read-only",
-    "--tmpfs", "/tmp",
-    "--cap-drop", "ALL",
-    "--security-opt", "no-new-privileges",
-    "--add-host", "host.docker.internal:host-gateway",
-    "-p", "127.0.0.1:" + aliasPort + ":8796",
-    "-e", "RFQ_XMR_DAEMON=http://host.docker.internal:" + daemon.port,
-    "-e", "RFQ_WITNESS_NETWORK=stagenet",
-    "-e", "RFQ_WITNESS_HOST=0.0.0.0",
-    "-e", "RFQ_WITNESS_PORT=8796",
-    IMAGE,
-  ]);
-  const aliasLive = await waitFor(aliasBase + "/live", 200);
-  assert.equal(aliasLive.status, 200, "the image serves with only the deprecated names set");
-  const aliasInfo = await json(aliasBase + "/info");
-  assert.equal(aliasInfo.body.protocol, "witness-v1");
-  const aliasLogsResult = spawnSync("docker", ["logs", aliasContainer], { encoding: "utf8" });
-  const aliasLogs = String(aliasLogsResult.stdout || "") + String(aliasLogsResult.stderr || "");
-  assert.match(aliasLogs, /RFQ_WITNESS_HOST/, "the image names the deprecated host in its deprecation line");
-  assert.match(aliasLogs, /RFQ_WITNESS_PORT/, "the image names the deprecated port in its deprecation line");
-  docker(["rm", "-f", aliasContainer], { check: false });
-  aliasContainer = "";
-
   console.log("witness container smoke: passed");
 } catch (error) {
   failure = error;
   if (container) {
     try { console.error(docker(["logs", container], { check: false })); } catch { /* best effort */ }
   }
-  if (aliasContainer) {
-    try { console.error(docker(["logs", aliasContainer], { check: false })); } catch { /* best effort */ }
-  }
 } finally {
-  if (aliasContainer) {
-    try { docker(["rm", "-f", aliasContainer], { check: false }); } catch { /* best effort */ }
-  }
   if (container) {
     try { docker(["rm", "-f", container], { check: false }); } catch { /* best effort */ }
   }

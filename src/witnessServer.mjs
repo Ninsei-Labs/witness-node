@@ -347,18 +347,14 @@ export function createWitnessServer({
 }
 
 export function listenHostFromEnv(env = process.env) {
-  // THE IMAGE SETS A DEFAULT, NOT AN EXPLICIT HOST. A real WITNESS_HOST wins; the deprecated alias comes next;
-  // WITNESS_DEFAULT_HOST is the image default. Setting WITNESS_HOST in the image would shadow the alias.
-  const raw = env.WITNESS_HOST !== undefined ? env.WITNESS_HOST
-    : env.RFQ_WITNESS_HOST !== undefined ? env.RFQ_WITNESS_HOST
-      : env.WITNESS_DEFAULT_HOST;
+  // THE IMAGE SETS A DEFAULT, NOT AN EXPLICIT HOST. A real WITNESS_HOST wins; WITNESS_DEFAULT_HOST is the image
+  // default. The old RFQ_ alias is gone in 0.3.0.
+  const raw = env.WITNESS_HOST !== undefined ? env.WITNESS_HOST : env.WITNESS_DEFAULT_HOST;
   return String(raw || "127.0.0.1").trim();
 }
 
 export function listenPortFromEnv(env = process.env) {
-  const raw = String((env.WITNESS_PORT !== undefined ? env.WITNESS_PORT
-    : env.RFQ_WITNESS_PORT !== undefined ? env.RFQ_WITNESS_PORT
-      : env.WITNESS_DEFAULT_PORT) || "8796").trim();
+  const raw = String((env.WITNESS_PORT !== undefined ? env.WITNESS_PORT : env.WITNESS_DEFAULT_PORT) || "8796").trim();
   const port = Number(raw);
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error("WITNESS_PORT is not a port: " + JSON.stringify(raw));
   return port;

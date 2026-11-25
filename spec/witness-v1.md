@@ -144,8 +144,8 @@ Optional settings:
 | `WITNESS_MAX_INFLIGHT` | `4` | concurrent daemon-backed requests; excess requests get `503 busy` |
 | `WITNESS_REQUEST_TIMEOUT_MS` | `10000` | request and header deadline in milliseconds |
 
-The service refuses to start without `WITNESS_XMR_DAEMON`. The old `RFQ_XMR_DAEMON` and `RFQ_WITNESS_*` names are
-still read as deprecated aliases and will be removed in 1.0.0.
+The service refuses to start without `WITNESS_XMR_DAEMON`. Only `WITNESS_*` names are read; the old `RFQ_*` names
+do nothing.
 
 ## Refusals
 
