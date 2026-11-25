@@ -279,6 +279,13 @@ A local test setup with three containers and one daemon is a protocol fixture, n
 
 ## Changelog
 
+### 0.2.1 (2026-11-25)
+
+The package version and the compose pin are both `0.2.1`.
+
+- An empty daemon pool answers `200` with an empty list. A real monerod omits `tx_hashes` when the pool is empty; a non-OK, untrusted or malformed answer is still a refusal.
+- The image no longer sets `WITNESS_HOST` and `WITNESS_PORT` as explicit values. The deprecated `RFQ_WITNESS_HOST` and `RFQ_WITNESS_PORT` names work in the image, and the healthcheck follows the selected port.
+
 ### 0.2.0 (2026-11-25)
 
 The package version and the compose pin are both `0.2.0`.

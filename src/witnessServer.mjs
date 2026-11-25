@@ -283,10 +283,19 @@ export function createWitnessServer({
         takeSlot();
         await readDaemonTip({ daemonUrl, network, fetchImpl, timeoutMs });
         const answer = await daemonDirect(daemonUrl, "/get_transaction_pool_hashes", {}, fetchImpl, timeoutMs);
-        if (!Array.isArray(answer && answer.tx_hashes)) {
-          throw new WitnessSliceError("bad-daemon-answer", { why: "no-pool-hashes" });
+        // AN EMPTY POOL IS NOT A BAD ANSWER. monerod omits `tx_hashes` when the pool is empty; the rest of the answer
+        // still names a synchronized, trusted daemon. Only a non-OK, untrusted or malformed answer is a refusal.
+        if (answer && answer.untrusted === true) {
+          throw new WitnessSliceError("bad-daemon-answer", { why: "untrusted-pool" });
         }
-        return send(200, answer);
+        if (String((answer && answer.status) || "") !== "OK") {
+          throw new WitnessSliceError("bad-daemon-answer", { why: "pool-status" });
+        }
+        const poolHashes = answer.tx_hashes === undefined ? [] : answer.tx_hashes;
+        if (!Array.isArray(poolHashes) || poolHashes.some((txid) => !HEX64.test(String(txid || "").replace(/^0x/, "")))) {
+          throw new WitnessSliceError("bad-daemon-answer", { why: "bad-pool-hashes" });
+        }
+        return send(200, { ...answer, tx_hashes: poolHashes });
       }
       if (req.method === "POST" && req.url === "/get_transactions") {
         const body = await readJson(req, MAX_PROXY_BODY_BYTES);
@@ -338,12 +347,18 @@ export function createWitnessServer({
 }
 
 export function listenHostFromEnv(env = process.env) {
-  const raw = env.WITNESS_HOST !== undefined ? env.WITNESS_HOST : env.RFQ_WITNESS_HOST;
+  // THE IMAGE SETS A DEFAULT, NOT AN EXPLICIT HOST. A real WITNESS_HOST wins; the deprecated alias comes next;
+  // WITNESS_DEFAULT_HOST is the image default. Setting WITNESS_HOST in the image would shadow the alias.
+  const raw = env.WITNESS_HOST !== undefined ? env.WITNESS_HOST
+    : env.RFQ_WITNESS_HOST !== undefined ? env.RFQ_WITNESS_HOST
+      : env.WITNESS_DEFAULT_HOST;
   return String(raw || "127.0.0.1").trim();
 }
 
 export function listenPortFromEnv(env = process.env) {
-  const raw = String((env.WITNESS_PORT !== undefined ? env.WITNESS_PORT : env.RFQ_WITNESS_PORT) || "8796").trim();
+  const raw = String((env.WITNESS_PORT !== undefined ? env.WITNESS_PORT
+    : env.RFQ_WITNESS_PORT !== undefined ? env.RFQ_WITNESS_PORT
+      : env.WITNESS_DEFAULT_PORT) || "8796").trim();
   const port = Number(raw);
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error("WITNESS_PORT is not a port: " + JSON.stringify(raw));
   return port;

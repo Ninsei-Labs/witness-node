@@ -45,6 +45,10 @@ if (!["mainnet", "stagenet", "testnet"].includes(network)) {
 }
 const host = listenHostFromEnv();
 const port = listenPortFromEnv();
+// THE LISTEN NAMES HAVE THEIR OWN ALIASES AND THEIR OWN DEPRECATION LINE. envValue covers the settings below, but
+// the host and port are read by the listen helpers, so name them here when only the old name is set.
+if (process.env.WITNESS_HOST === undefined && process.env.RFQ_WITNESS_HOST !== undefined) legacyNames.push("RFQ_WITNESS_HOST");
+if (process.env.WITNESS_PORT === undefined && process.env.RFQ_WITNESS_PORT !== undefined) legacyNames.push("RFQ_WITNESS_PORT");
 const allowOrigin = String(envValue("WITNESS_ALLOW_ORIGIN", "RFQ_WITNESS_ALLOW_ORIGIN") || "*").trim();
 const timeoutMs = Number(envValue("WITNESS_TIMEOUT_MS", "RFQ_WITNESS_TIMEOUT_MS") || 8000);
 if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
