@@ -17,6 +17,7 @@ const check = (condition, message) => { if (condition) console.log("  ok    " + 
 const TXID = "ab".repeat(32);
 const hash = (height) => String(height).padStart(64, "0");
 let daemonUntrusted = false;
+let poolAnswer = { credits: 0, status: "OK", top_hash: "", untrusted: false };
 
 const daemon = await new Promise((resolve) => {
   const server = createServer((req, res) => {
@@ -32,6 +33,9 @@ const daemon = await new Promise((resolve) => {
       if (req.url === "/get_transactions") {
         return res.end(JSON.stringify({ txs: [{ tx_hash: TXID, block_height: 105 }], txs_as_json: ['{"version":2}'],
           status: "OK", untrusted: daemonUntrusted }));
+      }
+      if (req.url === "/get_transaction_pool_hashes") {
+        return res.end(JSON.stringify(poolAnswer));
       }
       res.statusCode = 404;
       res.end(JSON.stringify({ error: "unexpected" }));
@@ -99,6 +103,44 @@ try {
     const answer = await call(noTxsServer.url, "/get_transactions", { txs_hashes: [TXID], decode_as_json: true });
     check(answer.status === 404, "removing the get_transactions route makes the slice bodies unavailable");
   } finally { await close(noTxsServer.server); }
+
+  // EACH POOL GUARD IS LOAD-BEARING. The route tests cover the happy and refusal paths; these mutations show that
+  // removing the guard changes the answer, so the tests cannot stay green on a weakened route.
+  const noPoolUntrusted = await mutated("no-pool-untrusted",
+    'throw new WitnessSliceError("bad-daemon-answer", { why: "untrusted-pool" });', "void 0;");
+  const noPoolUntrustedServer = await serve(noPoolUntrusted);
+  try {
+    poolAnswer = { credits: 0, status: "OK", top_hash: "", untrusted: true, tx_hashes: [] };
+    const answer = await call(noPoolUntrustedServer.url, "/get_transaction_pool_hashes", {});
+    check(answer.status === 200, "removing the untrusted pool guard lets an untrusted pool through");
+  } finally {
+    poolAnswer = { credits: 0, status: "OK", top_hash: "", untrusted: false };
+    await close(noPoolUntrustedServer.server);
+  }
+
+  const noPoolStatus = await mutated("no-pool-status",
+    'if (String((answer && answer.status) || "") !== "OK") {', "if (false) {");
+  const noPoolStatusServer = await serve(noPoolStatus);
+  try {
+    poolAnswer = { credits: 0, status: "ERROR", top_hash: "", untrusted: false, tx_hashes: [] };
+    const answer = await call(noPoolStatusServer.url, "/get_transaction_pool_hashes", {});
+    check(answer.status === 200, "removing the pool status guard lets a non-OK answer through");
+  } finally {
+    poolAnswer = { credits: 0, status: "OK", top_hash: "", untrusted: false };
+    await close(noPoolStatusServer.server);
+  }
+
+  const noPoolEmpty = await mutated("no-pool-empty",
+    "answer.tx_hashes === undefined ? [] : answer.tx_hashes", "answer.tx_hashes");
+  const noPoolEmptyServer = await serve(noPoolEmpty);
+  try {
+    poolAnswer = { credits: 0, status: "OK", top_hash: "", untrusted: false };
+    const answer = await call(noPoolEmptyServer.url, "/get_transaction_pool_hashes", {});
+    check(answer.status === 502, "removing the empty-pool branch turns a real empty pool back into a refusal");
+  } finally {
+    poolAnswer = { credits: 0, status: "OK", top_hash: "", untrusted: false };
+    await close(noPoolEmptyServer.server);
+  }
 } finally {
   await close(daemon.server);
   rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
@@ -109,4 +151,4 @@ if (problems.length) {
   console.log("FAILED: " + problems.length + " problem(s)");
   process.exit(1);
 }
-console.log("witness teeth: 5 checks passed");
+console.log("witness teeth: 8 checks passed");
