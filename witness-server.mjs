@@ -68,10 +68,17 @@ if (!Number.isInteger(sliceDeadlineMs) || sliceDeadlineMs <= 0) {
 }
 const operator = envText(envValue("WITNESS_OPERATOR"), 80);
 const contact = envText(envValue("WITNESS_CONTACT"), 200);
-const metricsPublished = envBoolean("WITNESS_METRICS_PUBLISH", envValue("WITNESS_METRICS_PUBLISH")) ?? false;
-const allowGetBlock = envBoolean("WITNESS_ALLOW_GET_BLOCK", envValue("WITNESS_ALLOW_GET_BLOCK")) ?? false;
-const rawAllowPool = envValue("WITNESS_ALLOW_POOL");
-const allowPool = rawAllowPool === undefined ? true : envBoolean("WITNESS_ALLOW_POOL", rawAllowPool);
+function boolEnv(name, fallback) {
+  try {
+    return envBoolean(name, envValue(name)) ?? fallback;
+  } catch (error) {
+    console.error("witness: " + String((error && error.message) || error));
+    process.exit(1);
+  }
+}
+const metricsPublished = boolEnv("WITNESS_METRICS_PUBLISH", false);
+const allowGetBlock = boolEnv("WITNESS_ALLOW_GET_BLOCK", false);
+const allowPool = boolEnv("WITNESS_ALLOW_POOL", true);
 
 const server = createWitnessServer({
   network, daemonUrl, allowOrigin, operator, contact, metricsPublished, healthTtlMs, maxInflight, timeoutMs,
