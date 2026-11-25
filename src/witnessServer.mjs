@@ -127,10 +127,10 @@ export function createWitnessServer({
     requests.set(key, (requests.get(key) || 0) + 1);
   };
 
-  async function checkHealth(signal = null) {
+  async function checkHealth() {
     if (Date.now() - health.at < healthTtlMs) return health;
     try {
-      const tip = await readDaemonTip({ daemonUrl, network, fetchImpl, timeoutMs, signal });
+      const tip = await readDaemonTip({ daemonUrl, network, fetchImpl, timeoutMs });
       health = { at: Date.now(), ok: true, daemon: "ok", network: "ok", height: tip.height };
     } catch (error) {
       const why = error && error.params && error.params.why;
@@ -225,7 +225,7 @@ export function createWitnessServer({
     }
 
     if (req.method === "GET" && req.url === "/health") {
-      const current = await checkHealth(requestSignal);
+      const current = await checkHealth();
       return send(current.ok ? 200 : 503, {
         ok: current.ok, service: SERVICE, status: current.ok ? "ready" : "not-ready", network,
         checks: { daemon: current.daemon, network: current.network },
@@ -247,7 +247,7 @@ export function createWitnessServer({
         return send(403, { ok: false, code: "metrics-loopback-only",
           error: "metrics answer loopback callers only; set WITNESS_METRICS_PUBLISH=1 to publish them" });
       }
-      const current = await checkHealth(requestSignal);
+      const current = await checkHealth();
       return send(200, metricsText(current), "text/plain; version=0.0.4; charset=utf-8");
     }
 

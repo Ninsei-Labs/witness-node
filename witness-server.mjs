@@ -60,7 +60,8 @@ if (!Number.isInteger(requestTimeoutMs) || requestTimeoutMs <= 0) {
   console.error("witness: WITNESS_REQUEST_TIMEOUT_MS must be a positive integer");
   process.exit(1);
 }
-const sliceDeadlineMs = Number(envValue("WITNESS_SLICE_DEADLINE_MS") || 55000);
+const rawSliceDeadline = envValue("WITNESS_SLICE_DEADLINE_MS");
+const sliceDeadlineMs = rawSliceDeadline === undefined ? 55000 : Number(rawSliceDeadline);
 if (!Number.isInteger(sliceDeadlineMs) || sliceDeadlineMs <= 0) {
   console.error("witness: WITNESS_SLICE_DEADLINE_MS must be a positive integer");
   process.exit(1);

@@ -297,6 +297,48 @@ try {
     check(healthBody.checks.daemon === "ok" && healthBody.checks.network === "ok",
       "readiness names the daemon and network checks");
 
+    // A CLIENT ABORT MUST NOT POISON THE SHARED HEALTH CACHE. Health is a cached, shared probe, not client-owned
+    // work: the first client leaves, the daemon answers, and the next readiness read must see the recovered state.
+    {
+      const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+      let started, release;
+      const startedP = new Promise((resolve) => { started = resolve; });
+      const releaseP = new Promise((resolve) => { release = resolve; });
+      let held = false;
+      const healthServer = createWitnessServer({
+        network: "stagenet", daemonUrl: daemon.url, healthTtlMs: 1000,
+        fetchImpl: async (url, init) => {
+          const request = JSON.parse(init.body);
+          if (request.method === "get_info" && !held) {
+            held = true;
+            started();
+            await releaseP;
+          }
+          return fetch(url, init);
+        },
+      });
+      await new Promise((resolve) => healthServer.listen(0, "127.0.0.1", resolve));
+      try {
+        const healthBase = "http://127.0.0.1:" + healthServer.address().port;
+        const client = new AbortController();
+        const first = fetch(healthBase + "/health", { signal: client.signal }).catch((error) => error);
+        await startedP;
+        client.abort();
+        await first;
+        release();
+        let recovered = null;
+        for (let i = 0; i < 20; i++) {
+          recovered = await fetch(healthBase + "/health");
+          if (recovered.status === 200) break;
+          await wait(25);
+        }
+        check(recovered.status === 200, "an aborted health client does not cache a false readiness");
+      } finally {
+        release();
+        await close(healthServer);
+      }
+    }
+
     const identity = await fetch(base + "/info");
     const identityBody = await identity.json();
     check(identity.status === 200 && identityBody.protocol === "witness-v1" && identityBody.grid === 20,
@@ -725,7 +767,8 @@ try {
       await Promise.race([canceled.started, sleep(1000).then(() => { throw new Error("the block gate never opened"); })]);
       client.abort();
       await Promise.race([first, sleep(1000).then(() => { throw new Error("the aborted slice did not return"); })]);
-      await sleep(30);
+      canceled.release();
+      await sleep(50);
       check(canceled.blockCalls() === 1, "a client abort stops the slice at the held block read");
       const afterCancel = await fetch(cancelBase + "/v1/witness/slice", {
         method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(good),
