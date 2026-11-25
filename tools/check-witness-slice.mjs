@@ -8,10 +8,11 @@
 //   * the route answers with the same slice and CORS, and refuses a malformed body;
 //   * a partial or non-consecutive answer is rejected, not scanned.
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { createConnection } from "node:net";
 import { networkInterfaces } from "node:os";
-import { createWitnessServer, isLoopbackAddress, listenHostFromEnv, listenPortFromEnv } from "../src/witnessServer.mjs";
+import { ROUTES, createWitnessServer, isLoopbackAddress, listenHostFromEnv, listenPortFromEnv } from "../src/witnessServer.mjs";
 import {
   WITNESS_SLICE_BLOCKS, WitnessSliceError,
   assertWitnessSliceShape, parseWitnessSliceRequest, readWitnessSlice, witnessSliceBounds,
@@ -26,6 +27,22 @@ const rejects = async (fn, code, message) => {
   }
   check(false, message + " (accepted)");
 };
+
+// THE DOCUMENTED NGINX SURFACE MUST COVER THE ROUTE REGISTRY. The server can serve a route that the deployment
+// example refuses with its catch-all 404; this catches that drift without importing a proxy into the test.
+{
+  const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
+  const tls = readme.indexOf("listen 443");
+  const start = tls >= 0 ? readme.lastIndexOf("server {", tls) : readme.indexOf("server {");
+  const end = readme.indexOf("location / {", start);
+  const proxyBlock = start >= 0 && end > start ? readme.slice(start, end) : "";
+  for (const route of ROUTES) {
+    check(proxyBlock.includes("location = " + route),
+      "the documented nginx config proxies " + route);
+  }
+  check(/location \/ \{\s*return 404;/.test(readme.slice(end)),
+    "the documented nginx config refuses unknown paths with 404");
+}
 
 const hash = (height) => String(height).padStart(64, "0");
 const TXID = "ab".repeat(32);
@@ -251,6 +268,16 @@ try {
     check(live.status === 200 && liveBody.grid === 20, "the witness advertises its grid");
     check(liveBody.routes.includes("/health") && liveBody.routes.includes("/metrics") && liveBody.routes.includes("/info"),
       "liveness names the standard endpoints");
+    check(JSON.stringify(liveBody.routes) === JSON.stringify([...ROUTES]),
+      "liveness advertises exactly the route registry");
+    check(liveBody.routes.includes("/get_transaction_pool_hashes"),
+      "liveness names the pool route");
+
+    const wrongMethod = await fetch(base + "/live", { method: "POST" });
+    const wrongMethodBody = await wrongMethod.json();
+    check(wrongMethod.status === 405 && wrongMethodBody.code === "method-not-allowed"
+      && wrongMethod.headers.get("allow") === "GET",
+      "the route registry refuses a wrong method and names the allowed one");
 
     const info = await fetch(base + "/json_rpc", {
       method: "POST", headers: { "content-type": "application/json" },
@@ -373,6 +400,10 @@ try {
     const poolFilledBody = await poolFilled.json();
     check(poolFilled.status === 200 && poolFilledBody.tx_hashes.length === 1 && poolFilledBody.tx_hashes[0] === TXID,
       "a non-empty pool returns its hashes");
+    const poolMetrics = await fetch(base + "/metrics");
+    const poolMetricsBody = await poolMetrics.text();
+    check(poolMetricsBody.includes('route="/get_transaction_pool_hashes"'),
+      "the pool request is counted under its own route, not other");
 
     daemonState.poolAnswer = { credits: 0, status: "ERROR", top_hash: "", untrusted: false, tx_hashes: [] };
     const poolStatus = await fetch(base + "/get_transaction_pool_hashes", {
@@ -554,7 +585,10 @@ try {
     check(oversized.status === 400, "the route refuses an oversized body without draining it");
 
     const unknown = await fetch(base + "/v1/witness/unknown");
+    const unknownBody = await unknown.json();
     check(unknown.status === 404, "an unknown route is a 404");
+    check(JSON.stringify(unknownBody.known) === JSON.stringify([...ROUTES]),
+      "the 404 names exactly the route registry");
 
     const wrongNetwork = createWitnessServer({ network: "mainnet", daemonUrl: daemon.url });
     await new Promise((resolve) => wrongNetwork.listen(0, "127.0.0.1", resolve));

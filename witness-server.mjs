@@ -19,7 +19,7 @@
 //   WITNESS_MAX_INFLIGHT     concurrent daemon-backed requests (default: 4)
 //   WITNESS_REQUEST_TIMEOUT_MS  request and header deadline (default: 10000)
 //
-import { createWitnessServer, envBoolean, envText, listenHostFromEnv, listenPortFromEnv } from "./src/witnessServer.mjs";
+import { ROUTES, createWitnessServer, envBoolean, envText, listenHostFromEnv, listenPortFromEnv } from "./src/witnessServer.mjs";
 import { WITNESS_SLICE_BLOCKS, WITNESS_VERSION } from "./src/witnessSlice.mjs";
 
 function envValue(name) {
@@ -79,7 +79,7 @@ server.listen(port, host, () => {
     event: "witness_serving", service: "Ninsei-Witness", version: WITNESS_VERSION, network,
     grid: WITNESS_SLICE_BLOCKS, host, port, operator: operator || null,
     features: { getBlock: allowGetBlock, pool: allowPool },
-    paths: ["/live", "/health", "/metrics", "/info", "/json_rpc", "/get_transactions", "/v1/witness/slice"],
+    paths: [...ROUTES],
   }));
 });
 

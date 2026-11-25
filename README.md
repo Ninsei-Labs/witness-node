@@ -203,6 +203,12 @@ http {
             proxy_pass http://witness;
         }
 
+        location = /get_transaction_pool_hashes {
+            limit_except POST OPTIONS { deny all; }
+            client_max_body_size 4k;
+            proxy_pass http://witness;
+        }
+
         location = /v1/witness/slice {
             limit_except POST OPTIONS { deny all; }
             client_max_body_size 4k;

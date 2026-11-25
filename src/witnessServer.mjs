@@ -29,7 +29,17 @@ const STATUS = new Map([
   ["daemon-unavailable", 503], ["not-synchronized", 503], ["busy", 503], ["bad-daemon-answer", 502],
 ]);
 
-const ROUTES = ["/live", "/health", "/metrics", "/info", "/json_rpc", "/get_transactions", "/v1/witness/slice"];
+const ROUTE_METHODS = Object.freeze({
+  "/live": "GET",
+  "/health": "GET",
+  "/metrics": "GET",
+  "/info": "GET",
+  "/json_rpc": "POST",
+  "/get_transactions": "POST",
+  "/get_transaction_pool_hashes": "POST",
+  "/v1/witness/slice": "POST",
+});
+export const ROUTES = Object.freeze(Object.keys(ROUTE_METHODS));
 
 export function isLoopbackAddress(address) {
   return LOOPBACK.test(String(address || ""));
@@ -191,6 +201,14 @@ export function createWitnessServer({
         "access-control-max-age": "600",
       });
       return res.end();
+    }
+
+    // THE ROUTE REGISTRY ALSO OWNS THE METHOD. One list names the path; a request with the wrong method cannot
+    // fall through to another handler or to the catch-all 404.
+    const expectedMethod = ROUTE_METHODS[req.url];
+    if (expectedMethod && req.method !== expectedMethod) {
+      res.setHeader("allow", expectedMethod);
+      return send(405, { ok: false, code: "method-not-allowed", allow: expectedMethod });
     }
 
     if (req.method === "GET" && req.url === "/live") {
