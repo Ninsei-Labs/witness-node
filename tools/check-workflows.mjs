@@ -12,6 +12,7 @@ const PUBLISH_SDK_PIN = "20515404f5546680ba609b71074d977bd2444196";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const check = readFileSync(join(ROOT, ".github", "workflows", "check.yml"), "utf8");
 const publish = readFileSync(join(ROOT, ".github", "workflows", "publish.yml"), "utf8");
+const codeql = readFileSync(join(ROOT, ".github", "workflows", "codeql.yml"), "utf8");
 
 function namedSteps(text) {
   const result = [];
@@ -131,8 +132,24 @@ function findings(checkText, publishText) {
   return problems;
 }
 
+function codeqlFindings(text) {
+  const problems = [];
+  const need = (needle, message) => { if (!text.includes(needle)) problems.push(message); };
+  need("pull_request:", "codeql.yml does not run on pull requests");
+  need("types: [opened, synchronize, reopened, ready_for_review]",
+    "codeql.yml does not start on ready_for_review");
+  need("github.event.pull_request.draft == false", "codeql.yml does not skip a draft pull request");
+  need("security-events: write", "codeql.yml cannot upload analysis results");
+  need("push:", "codeql.yml lost its push scan");
+  need("schedule:", "codeql.yml lost its scheduled scan");
+  return problems;
+}
+
 const problems = findings(check, publish);
 assert.deepEqual(problems, [], problems.join("\n"));
+
+const codeqlProblems = codeqlFindings(codeql);
+assert.deepEqual(codeqlProblems, [], codeqlProblems.join("\n"));
 
 // THE GUARD CAN FAIL. Removing each fact from a copy must name that fact.
 const mutations = [
@@ -170,4 +187,18 @@ for (const [needle, replacement, message] of mutations) {
   assert.ok(result.includes(message), "the workflow check accepted a copy without: " + message);
 }
 
-console.log("workflow checks: publish gates, their order and the ready-for-review trigger are enforced");
+const codeqlMutations = [
+  ["pull_request:", "", "codeql.yml does not run on pull requests"],
+  ["types: [opened, synchronize, reopened, ready_for_review]", "",
+    "codeql.yml does not start on ready_for_review"],
+  ["github.event.pull_request.draft == false", "", "codeql.yml does not skip a draft pull request"],
+  ["security-events: write", "", "codeql.yml cannot upload analysis results"],
+  ["push:", "", "codeql.yml lost its push scan"],
+  ["schedule:", "", "codeql.yml lost its scheduled scan"],
+];
+for (const [needle, replacement, message] of codeqlMutations) {
+  const result = codeqlFindings(codeql.replaceAll(needle, replacement));
+  assert.ok(result.includes(message), "the workflow check accepted a copy without: " + message);
+}
+
+console.log("workflow checks: publish gates, their order, the ready-for-review trigger and CodeQL on PRs are enforced");
