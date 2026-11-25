@@ -36,13 +36,13 @@ Response:
   "to": 1469039,
   "complete": true,
   "blocks": [
-    {"height":1469020,"hash":"<64 hex>","txids":["<64 hex>"]}
+    {"height":1469020,"hash":"<64 hex>","prev_hash":"<64 hex>","num_txes":1,"txids":["<64 hex>"]}
   ],
   "tip": null
 }
 ```
 
-A slice below the daemon tip has exactly `grid` blocks. The heights are consecutive. Each block has a 64-hex hash and an array of transaction ids. The array is empty for an empty block. monerod omits `tx_hashes` when `block_header.num_txes` is 0; the witness returns `"txids": []` for that real shape. A missing `tx_hashes` with any other `num_txes` is a refusal. A missing block or a malformed hash is also a refusal.
+A slice below the daemon tip has exactly `grid` blocks. The heights are consecutive. Each block has a 64-hex hash, the previous block's 64-hex hash, its transaction count and an array of transaction ids. The array is empty for an empty block. monerod omits `tx_hashes` when `block_header.num_txes` is 0; the witness returns `"txids": []` for that real shape. A missing `tx_hashes` with any other `num_txes` is a refusal. A missing block, a malformed hash, a missing parent hash, or a transaction count that disagrees with the txids is also a refusal. The parent hash lets a client check that the whole slice is one chain without asking for another height.
 
 The slice that contains the daemon tip is partial. Its `to` is the top block. `complete` is `false`, and `tip` names that block with its height and hash. The client accepts `complete: false` only for the last slice of its walk. The `tip.height` must not be below the top the client read. A higher tip is a block that arrived during the walk, and it is accepted. A lower tip is refused. The walk never asks for a height above the tip, and absence is counted only up to it. The witness reads `top_block_hash` with the tip and refuses the slice with `502 bad-daemon-answer` when the last block's hash differs, so a reorg between the tip read and the block reads is not served as a consistent slice. A slice that starts above the daemon top is refused with `503 not-synchronized`: the witness is behind the caller, and the caller can retry.
 
@@ -63,7 +63,8 @@ GET  /live                liveness
 GET  /health              readiness (daemon + network)
 GET  /metrics             Prometheus text, loopback only by default
 GET  /info                protocol and optional operator metadata
-POST /json_rpc            get_info only
+POST /json_rpc            get_info; get_block only with RFQ_WITNESS_ALLOW_GET_BLOCK=1
+POST /get_transaction_pool_hashes  only with RFQ_WITNESS_ALLOW_GET_BLOCK=1
 POST /get_transactions    1 to 4096 txids
 POST /v1/witness/slice
 ```
@@ -72,11 +73,17 @@ CORS is allowed for the browser SDK. `RFQ_WITNESS_ALLOW_ORIGIN` narrows the orig
 witness.
 
 The SDK needs the witness tip and the transaction bodies of the slice it just received. The service proxies exactly
-those two reads to its daemon: `/json_rpc` accepts only `get_info`, and `/get_transactions` accepts 1 to 4096 txids in
-one bounded list. The service is stateless, so it cannot tell whether a txid came from a slice answer. Neither route
-names an order, and neither turns the service into an arbitrary daemon proxy. `/get_transactions` applies the same
+those two reads to its daemon: `/json_rpc` accepts only `get_info` by default, and `/get_transactions` accepts 1 to 4096
+txids in one bounded list. The service is stateless, so it cannot tell whether a txid came from a slice answer. Neither
+route names an order, and neither turns the service into an arbitrary daemon proxy. `/get_transactions` applies the same
 readiness rule from the daemon answer: `untrusted: true` is `503 not-synchronized`, `status: "BUSY"` is `503 busy`, and
 any other non-OK status is `502 bad-daemon-answer`.
+
+`RFQ_WITNESS_ALLOW_GET_BLOCK=1` adds one narrow compatibility method to `/json_rpc`: `get_block` by exact height, and
+enables the global `/get_transaction_pool_hashes` route. The block answer returns only `block_header` (`height`, `hash`,
+`prev_hash`, `num_txes`, `timestamp`) and `tx_hashes`, never the daemon's `blob` or unrestricted body. Both are off by
+default because an exact height names the order's start or payout block, and the pool list is a network-wide read;
+enable them only on a private witness used for recovery compatibility, not on the public slice endpoint.
 
 ## Operational endpoints
 
@@ -87,9 +94,11 @@ any other non-OK status is `502 bad-daemon-answer`.
 ready, or `503` when any of those checks fails. The answer never contains the daemon URL. The probe is cached for
 `RFQ_WITNESS_HEALTH_TTL_MS` (default `5000`) so a scrape loop cannot turn into a daemon request loop.
 
-`POST /json_rpc` accepts only `get_info`. It applies the same daemon check, then returns only `height`, `synchronized`,
+`POST /json_rpc` accepts `get_info`. It applies the same daemon check, then returns only `height`, `synchronized`,
 `nettype` and `status`. It does not relay the daemon's version, peers, disk space or bootstrap address. A daemon that
-is not ready is refused with `503 not-synchronized`.
+is not ready is refused with `503 not-synchronized`. With `RFQ_WITNESS_ALLOW_GET_BLOCK=1`, it also accepts
+`get_block` for one exact height and returns the reduced compatibility shape described above; the height above the tip
+is refused as `not-synchronized`.
 
 `GET /metrics` uses the Prometheus text format. It exposes the process state, the last readiness result, the
 protocol/network/operator identity and request counts by route and status. It does not expose order data, block
@@ -126,6 +135,7 @@ Optional settings:
 | `RFQ_WITNESS_OPERATOR` | unset | optional public operator name in `/info` and metrics |
 | `RFQ_WITNESS_CONTACT` | unset | optional public contact in `/info` |
 | `RFQ_WITNESS_METRICS_PUBLISH` | unset | `1` exposes `/metrics` beyond loopback |
+| `RFQ_WITNESS_ALLOW_GET_BLOCK` | unset | `1` adds the narrow exact-height `get_block` compatibility method |
 | `RFQ_WITNESS_HEALTH_TTL_MS` | `5000` | readiness probe cache |
 | `RFQ_WITNESS_MAX_INFLIGHT` | `4` | concurrent daemon-backed requests; excess requests get `503 busy` |
 | `RFQ_WITNESS_REQUEST_TIMEOUT_MS` | `10000` | request and header deadline in milliseconds |

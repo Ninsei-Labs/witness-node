@@ -13,6 +13,7 @@
 //   RFQ_WITNESS_OPERATOR         optional public operator name for /info
 //   RFQ_WITNESS_CONTACT          optional public contact for /info
 //   RFQ_WITNESS_METRICS_PUBLISH  1/true/yes/on exposes /metrics beyond loopback
+//   RFQ_WITNESS_ALLOW_GET_BLOCK  1/true/yes/on adds the narrow exact-height get_block compatibility method
 //   RFQ_WITNESS_HEALTH_TTL_MS    readiness probe cache (default: 5000)
 //   RFQ_WITNESS_MAX_INFLIGHT     concurrent daemon-backed requests (default: 4)
 //   RFQ_WITNESS_REQUEST_TIMEOUT_MS  request and header deadline (default: 10000)
@@ -55,10 +56,11 @@ if (!Number.isInteger(requestTimeoutMs) || requestTimeoutMs < 1) {
 const operator = envText(process.env.RFQ_WITNESS_OPERATOR, 80);
 const contact = envText(process.env.RFQ_WITNESS_CONTACT, 200);
 const metricsPublished = envBoolean(process.env.RFQ_WITNESS_METRICS_PUBLISH);
+const allowGetBlock = envBoolean(process.env.RFQ_WITNESS_ALLOW_GET_BLOCK);
 
 const server = createWitnessServer({
   network, daemonUrl, allowOrigin, operator, contact, metricsPublished, healthTtlMs, maxInflight, timeoutMs,
-  requestTimeoutMs, headersTimeoutMs: requestTimeoutMs,
+  requestTimeoutMs, headersTimeoutMs: requestTimeoutMs, allowGetBlock,
 });
 server.on("error", (error) => {
   console.error(JSON.stringify({ event: "witness_listener_failed", why: String((error && error.message) || error) }));
@@ -67,7 +69,7 @@ server.on("error", (error) => {
 server.listen(port, host, () => {
   console.log(JSON.stringify({
     event: "witness_serving", service: "Ninsei-Witness", version: WITNESS_VERSION, network,
-    grid: WITNESS_SLICE_BLOCKS, host, port, operator: operator || null,
+    grid: WITNESS_SLICE_BLOCKS, host, port, operator: operator || null, features: { getBlock: allowGetBlock },
     paths: ["/live", "/health", "/metrics", "/info", "/json_rpc", "/get_transactions", "/v1/witness/slice"],
   }));
 });
