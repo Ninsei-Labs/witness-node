@@ -20,8 +20,11 @@ LABEL org.opencontainers.image.title="witness-node" \
       org.opencontainers.image.revision="${BUILD_COMMIT}" \
       org.opencontainers.image.created="${BUILD_DATE}"
 
+# THE BASE DIGEST IS PINNED; DEBIAN SECURITY UPDATES STILL MOVE. Apply them in the image, then clean the lists.
 RUN apt-get update \
   && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates tzdata \
+  && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y --no-install-recommends \
+  && apt-get clean \
   && rm -rf /var/lib/apt/lists/* \
   && groupadd --gid 10001 witness \
   && useradd --uid 10001 --gid witness --no-create-home --shell /usr/sbin/nologin witness

@@ -1,6 +1,6 @@
 {
   "name": "@ninsei-labs/witness-node",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "type": "module",
   "description": "Read-only fixed-slice Monero witness for the Ninsei arrival protocol",
