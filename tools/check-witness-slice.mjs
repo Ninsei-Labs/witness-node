@@ -126,8 +126,10 @@ try {
     check(envBoolean("WITNESS_ALLOW_POOL", value) === false, "a boolean off value is accepted: " + value);
   }
   check(envBoolean("WITNESS_ALLOW_POOL", undefined) === undefined, "an unset boolean stays unset");
-  assert.throws(() => envBoolean("WITNESS_ALLOW_POOL", "enbale"), /WITNESS_ALLOW_POOL must be one of/,
-    "a boolean typo is refused and names the variable");
+  for (const name of ["WITNESS_ALLOW_POOL", "WITNESS_ALLOW_GET_BLOCK", "WITNESS_METRICS_PUBLISH"]) {
+    assert.throws(() => envBoolean(name, "enbale"), new RegExp(name + " must be one of"),
+      "a boolean typo is refused and names " + name);
+  }
   assert.throws(() => envBoolean("WITNESS_ALLOW_POOL", ""), /WITNESS_ALLOW_POOL must be one of/,
     "an empty boolean is refused");
   check(isLoopbackAddress("127.0.0.1") && isLoopbackAddress("::1") && isLoopbackAddress("::ffff:127.0.0.1"),
