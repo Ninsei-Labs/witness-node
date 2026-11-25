@@ -87,19 +87,19 @@ try {
   const bounds = witnessSliceBounds(5);
   check(bounds.from === 100 && bounds.to === 119, "slice 5 covers blocks 100..119");
   check(listenHostFromEnv({}) === "127.0.0.1", "the witness binds loopback by default");
-  check(listenHostFromEnv({ WITNESS_HOST: "0.0.0.0" }) === "0.0.0.0", "the witness host is configurable");
-  check(listenHostFromEnv({ RFQ_WITNESS_HOST: "0.0.0.0" }) === "0.0.0.0", "the deprecated host alias is still read");
+  check(listenHostFromEnv({ WITNESS_HOST: "0.0.0.0" }) === "127.0.0.1",
+    "the removed WITNESS_HOST is not read");
+  check(listenHostFromEnv({ RFQ_WITNESS_HOST: "0.0.0.0" }) === "127.0.0.1",
+    "the removed RFQ host alias is not read");
   check(listenHostFromEnv({ WITNESS_DEFAULT_HOST: "0.0.0.0" }) === "0.0.0.0",
-    "the image default host is read when no explicit name is set");
-  check(listenHostFromEnv({ RFQ_WITNESS_HOST: "127.0.0.2", WITNESS_DEFAULT_HOST: "0.0.0.0" }) === "127.0.0.2",
-    "the deprecated host alias wins over the image default");
+    "the default host setting is read");
   check(listenPortFromEnv({}) === 8796, "the witness default port avoids the screen-hook example on 8795");
-  check(listenPortFromEnv({ WITNESS_PORT: "9000" }) === 9000, "the witness port is configurable");
-  check(listenPortFromEnv({ RFQ_WITNESS_PORT: "9001" }) === 9001, "the deprecated port alias is still read");
+  check(listenPortFromEnv({ WITNESS_PORT: "9000" }) === 8796,
+    "the removed WITNESS_PORT is not read");
+  check(listenPortFromEnv({ RFQ_WITNESS_PORT: "9001" }) === 8796,
+    "the removed RFQ port alias is not read");
   check(listenPortFromEnv({ WITNESS_DEFAULT_PORT: "8797" }) === 8797,
-    "the image default port is read when no explicit name is set");
-  check(listenPortFromEnv({ RFQ_WITNESS_PORT: "9001", WITNESS_DEFAULT_PORT: "8797" }) === 9001,
-    "the deprecated port alias wins over the image default");
+    "the default port setting is read");
   check(isLoopbackAddress("127.0.0.1") && isLoopbackAddress("::1") && isLoopbackAddress("::ffff:127.0.0.1"),
     "the metrics guard recognises loopback forms");
   check(!isLoopbackAddress("203.0.113.7") && !isLoopbackAddress(""), "the metrics guard does not treat remote callers as loopback");

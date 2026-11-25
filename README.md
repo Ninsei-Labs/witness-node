@@ -53,13 +53,12 @@ operator's monerod. The public reverse proxy still needs its own per-client rate
 ```bash
 WITNESS_XMR_DAEMON=http://127.0.0.1:38081 \
 WITNESS_NETWORK=stagenet \
-WITNESS_HOST=127.0.0.1 \
-WITNESS_PORT=8796 \
 bun witness-server.mjs
 ```
 
-Settings are in [`witness.env.example`](witness.env.example). `WITNESS_XMR_DAEMON` is required. The old
-`RFQ_XMR_DAEMON` and `RFQ_WITNESS_*` names are read as deprecated aliases and will be removed in 1.0.0.
+Settings are in [`witness.env.example`](witness.env.example). `WITNESS_XMR_DAEMON` is required. Only `WITNESS_*`
+names are read; the old `RFQ_*` names do nothing. The bind is `WITNESS_DEFAULT_HOST`/`WITNESS_DEFAULT_PORT`:
+a local run defaults to `127.0.0.1:8796`, the image to `0.0.0.0:8796`.
 
 `8796` is the default port. `8795` is used by the documented screen-hook example, so it is not the witness default.
 
@@ -278,6 +277,14 @@ Two instances under one operator are one opinion. A production arrival quorum ne
 A local test setup with three containers and one daemon is a protocol fixture, not an independence proof.
 
 ## Changelog
+
+### 0.3.0 (2026-11-25)
+
+The package version and the compose pin are both `0.3.0`.
+
+- Removed the deprecated `RFQ_XMR_DAEMON` and `RFQ_WITNESS_*` aliases. Only `WITNESS_*` settings are read; the old names do nothing.
+- Removed the separate `WITNESS_HOST` and `WITNESS_PORT` settings. The bind comes from `WITNESS_DEFAULT_HOST` and `WITNESS_DEFAULT_PORT`; a local run defaults to `127.0.0.1:8796`, the image to `0.0.0.0:8796`.
+- An empty daemon pool still answers `200` with an empty list.
 
 ### 0.2.1 (2026-11-25)
 

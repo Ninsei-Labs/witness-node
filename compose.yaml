@@ -6,16 +6,13 @@
 services:
   witness:
     # Pin the release tag. The build block is for a local image; never deploy `latest`.
-    image: ghcr.io/ninsei-labs/witness-node:v0.2.1
+    image: ghcr.io/ninsei-labs/witness-node:v0.3.0
     build:
       context: .
       dockerfile: Dockerfile
     container_name: witness-node
     env_file:
       - ./witness.env
-    environment:
-      WITNESS_HOST: 0.0.0.0
-      WITNESS_PORT: "8796"
     ports:
       - "127.0.0.1:8796:8796"
     read_only: true

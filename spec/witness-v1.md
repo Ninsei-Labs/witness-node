@@ -121,8 +121,6 @@ The service is `witness-server.mjs` in this tree.
 ```bash
 WITNESS_XMR_DAEMON=http://127.0.0.1:38081 \
 WITNESS_NETWORK=stagenet \
-WITNESS_HOST=127.0.0.1 \
-WITNESS_PORT=8796 \
 bun witness-server.mjs
 ```
 
@@ -131,8 +129,8 @@ Optional settings:
 | Variable | Default | Meaning |
 |---|---|---|
 | `WITNESS_NETWORK` | `stagenet` | network named in every answer |
-| `WITNESS_HOST` | `127.0.0.1` | listen address; a public deployment uses a proxy or `0.0.0.0` |
-| `WITNESS_PORT` | `8796` | listen port; 8795 is the documented screen-hook example |
+| `WITNESS_DEFAULT_HOST` | `127.0.0.1` | listen address; the image default is `0.0.0.0` |
+| `WITNESS_DEFAULT_PORT` | `8796` | listen port; 8795 is the documented screen-hook example |
 | `WITNESS_ALLOW_ORIGIN` | `*` | CORS allow origin |
 | `WITNESS_TIMEOUT_MS` | `8000` | per-daemon request deadline |
 | `WITNESS_OPERATOR` | unset | optional public operator name in `/info` and metrics |
@@ -144,8 +142,8 @@ Optional settings:
 | `WITNESS_MAX_INFLIGHT` | `4` | concurrent daemon-backed requests; excess requests get `503 busy` |
 | `WITNESS_REQUEST_TIMEOUT_MS` | `10000` | request and header deadline in milliseconds |
 
-The service refuses to start without `WITNESS_XMR_DAEMON`. The old `RFQ_XMR_DAEMON` and `RFQ_WITNESS_*` names are
-still read as deprecated aliases and will be removed in 1.0.0.
+The service refuses to start without `WITNESS_XMR_DAEMON`. Only `WITNESS_*` names are read; the old `RFQ_*` names
+do nothing.
 
 ## Refusals
 
