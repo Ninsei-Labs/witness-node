@@ -12,6 +12,7 @@ const WALLET_IMAGE = process.env.WALLET_IMAGE || "sethsimmons/simple-monero-wall
 const NAME = "witness-regtest-" + process.pid + "-" + Date.now();
 const moneroName = NAME + "-node";
 const walletName = NAME + "-wallet";
+const networkName = NAME + "-net";
 
 function docker(args, { check = true } = {}) {
   const result = spawnSync("docker", args, { encoding: "utf8" });
@@ -70,7 +71,9 @@ const witness = { server: null };
 try {
   const moneroPort = await freePort();
   const walletPort = await freePort();
+  docker(["network", "create", networkName]);
   docker(["run", "-d", "--name", moneroName,
+    "--network", networkName,
     "-p", "127.0.0.1:" + moneroPort + ":18081",
     MONEROD_IMAGE,
     "--regtest", "--offline", "--fixed-difficulty=1",
@@ -80,17 +83,21 @@ try {
   await waitFor(moneroRpc, async () => (await rpc(moneroRpc, "get_info")).height >= 0, "monerod RPC");
 
   docker(["run", "-d", "--name", walletName,
-    "--add-host", "host.docker.internal:host-gateway",
+    "--network", networkName,
     "-p", "127.0.0.1:" + walletPort + ":18083",
     "--entrypoint", "sh",
     WALLET_IMAGE,
     "-c", "exec monero-wallet-rpc --non-interactive --rpc-bind-ip=0.0.0.0 --confirm-external-bind "
-      + "--daemon-address=http://host.docker.internal:" + moneroPort
+      + "--daemon-address=http://" + moneroName + ":18081"
       + " --allow-mismatched-daemon-version --rpc-bind-port=18083 --wallet-dir=/tmp/wallet --disable-rpc-login --log-level=1"]);
   const walletRpc = "http://127.0.0.1:" + walletPort + "/json_rpc";
   await waitFor(walletRpc, async () => Boolean((await rpc(walletRpc, "get_version")).version), "wallet RPC");
 
   await rpc(walletRpc, "create_wallet", { filename: "real", password: "", language: "English" });
+  await waitFor(walletRpc, async () => {
+    const height = await rpc(walletRpc, "get_height");
+    return height.height >= 0;
+  }, "wallet to daemon connection");
   const address = (await rpc(walletRpc, "get_address", { account_index: 0 })).address;
   assert.match(address, /^[0-9A-Za-z]{90,110}$/, "the wallet returned a testnet/regtest address");
 
@@ -179,4 +186,5 @@ try {
   for (const name of [walletName, moneroName]) {
     try { docker(["rm", "-f", name], { check: false }); } catch { /* best effort */ }
   }
+  try { docker(["network", "rm", networkName], { check: false }); } catch { /* best effort */ }
 }
