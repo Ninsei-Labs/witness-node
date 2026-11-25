@@ -127,19 +127,27 @@ export function createWitnessServer({
     requests.set(key, (requests.get(key) || 0) + 1);
   };
 
+  // ONE SHARED PROBE, NOT ONE PER SCRAPE. `/health` and `/metrics` are not client-owned work; while a probe is in
+  // flight every caller awaits the same promise, and only the finished result enters the TTL cache. The probe is
+  // one daemon read, so a scrape storm cannot amplify into a daemon storm.
+  let healthProbe = null;
   async function checkHealth() {
     if (Date.now() - health.at < healthTtlMs) return health;
-    try {
-      const tip = await readDaemonTip({ daemonUrl, network, fetchImpl, timeoutMs });
-      health = { at: Date.now(), ok: true, daemon: "ok", network: "ok", height: tip.height };
-    } catch (error) {
-      const why = error && error.params && error.params.why;
-      const networkMismatch = why === "wrong-network";
-      health = { at: Date.now(), ok: false,
-        daemon: error && error.code === "daemon-unavailable" ? "unavailable" : (networkMismatch ? "ok" : "not-ready"),
-        network: networkMismatch ? "mismatch" : "unknown" };
-    }
-    return health;
+    if (healthProbe) return healthProbe;
+    healthProbe = (async () => {
+      try {
+        const tip = await readDaemonTip({ daemonUrl, network, fetchImpl, timeoutMs });
+        health = { at: Date.now(), ok: true, daemon: "ok", network: "ok", height: tip.height };
+      } catch (error) {
+        const why = error && error.params && error.params.why;
+        const networkMismatch = why === "wrong-network";
+        health = { at: Date.now(), ok: false,
+          daemon: error && error.code === "daemon-unavailable" ? "unavailable" : (networkMismatch ? "ok" : "not-ready"),
+          network: networkMismatch ? "mismatch" : "unknown" };
+      }
+      return health;
+    })().finally(() => { healthProbe = null; });
+    return healthProbe;
   }
 
   function metricsText(currentHealth) {

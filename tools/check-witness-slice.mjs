@@ -297,6 +297,46 @@ try {
     check(healthBody.checks.daemon === "ok" && healthBody.checks.network === "ok",
       "readiness names the daemon and network checks");
 
+    // EIGHT SCRAPES, ONE DAEMON PROBE. Health and metrics share the in-flight promise; the first get_info is held
+    // so every caller arrives while the same probe is open.
+    {
+      let started, release;
+      const startedP = new Promise((resolve) => { started = resolve; });
+      const releaseP = new Promise((resolve) => { release = resolve; });
+      let probes = 0;
+      let held = false;
+      const single = createWitnessServer({
+        network: "stagenet", daemonUrl: daemon.url, maxInflight: 1, healthTtlMs: 5000,
+        fetchImpl: async (url, init) => {
+          const request = JSON.parse(init.body);
+          if (request.method === "get_info") {
+            probes += 1;
+            if (!held) {
+              held = true;
+              started();
+              await releaseP;
+            }
+          }
+          return fetch(url, init);
+        },
+      });
+      await new Promise((resolve) => single.listen(0, "127.0.0.1", resolve));
+      try {
+        const singleBase = "http://127.0.0.1:" + single.address().port;
+        const scrapes = Array.from({ length: 8 }, (_, i) => fetch(singleBase + (i % 2 ? "/health" : "/metrics")));
+        await startedP;
+        check(probes === 1, "parallel health and metrics scrapes share one daemon probe");
+        release();
+        const answers = await Promise.all(scrapes);
+        check(answers.every((answer) => answer.status === 200), "all shared health scrapes answer ready");
+        check(probes === 1, "the shared probe does not repeat after it settles");
+        for (const answer of answers) await answer.arrayBuffer();
+      } finally {
+        release();
+        await close(single);
+      }
+    }
+
     // A CLIENT ABORT MUST NOT POISON THE SHARED HEALTH CACHE. Health is a cached, shared probe, not client-owned
     // work: the first client leaves, the daemon answers, and the next readiness read must see the recovered state.
     {
