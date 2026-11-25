@@ -396,8 +396,15 @@ export function listenPortFromEnv(env = process.env) {
   return port;
 }
 
-export function envBoolean(value) {
-  return /^(1|true|yes|on)$/i.test(String(value || "").trim());
+const ENV_TRUE = new Set(["1", "true", "yes", "on"]);
+const ENV_FALSE = new Set(["0", "false", "no", "off"]);
+
+export function envBoolean(name, value) {
+  if (value === undefined) return undefined;
+  const text = String(value).trim().toLowerCase();
+  if (ENV_TRUE.has(text)) return true;
+  if (ENV_FALSE.has(text)) return false;
+  throw new Error(name + " must be one of 1/true/yes/on or 0/false/no/off; got " + JSON.stringify(value));
 }
 
 export function envText(value, max) {
