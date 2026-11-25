@@ -110,4 +110,7 @@ The witness uses its own error shape, not a JSON-RPC `error` object:
 | `busy` | 503 | the bounded in-flight work ceiling is full |
 | `bad-daemon-answer` | 502 | malformed, inconsistent or oversized daemon answer, a daemon RPC error, or a non-`OK` pool status |
 
+The slice route also returns `400 bad-version`, `wrong-network`, `bad-grid` and `bad-slice`; the request rules are in
+[`../spec/witness-v1.md`](../spec/witness-v1.md).
+
 `OPTIONS` answers `204` and is handled before the route registry. The CORS and health/metrics rules are in [`../README.md`](../README.md) and [`../spec/witness-v1.md`](../spec/witness-v1.md); they are not RPC methods.
