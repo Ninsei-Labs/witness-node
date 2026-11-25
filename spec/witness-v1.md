@@ -64,6 +64,7 @@ GET  /health              readiness (daemon + network)
 GET  /metrics             Prometheus text, loopback only by default
 GET  /info                protocol and optional operator metadata
 POST /json_rpc            get_info; get_block only with RFQ_WITNESS_ALLOW_GET_BLOCK=1
+POST /get_transaction_pool_hashes  only with RFQ_WITNESS_ALLOW_GET_BLOCK=1
 POST /get_transactions    1 to 4096 txids
 POST /v1/witness/slice
 ```
@@ -78,10 +79,11 @@ route names an order, and neither turns the service into an arbitrary daemon pro
 readiness rule from the daemon answer: `untrusted: true` is `503 not-synchronized`, `status: "BUSY"` is `503 busy`, and
 any other non-OK status is `502 bad-daemon-answer`.
 
-`RFQ_WITNESS_ALLOW_GET_BLOCK=1` adds one narrow compatibility method to `/json_rpc`: `get_block` by exact height. It
-returns only `block_header` (`height`, `hash`, `prev_hash`, `num_txes`, `timestamp`) and `tx_hashes`, never the daemon's
-`blob` or unrestricted body. The method is off by default because an exact height names the order's start or payout
-block; enable it only on a private witness used for recovery compatibility, not on the public slice endpoint.
+`RFQ_WITNESS_ALLOW_GET_BLOCK=1` adds one narrow compatibility method to `/json_rpc`: `get_block` by exact height, and
+enables the global `/get_transaction_pool_hashes` route. The block answer returns only `block_header` (`height`, `hash`,
+`prev_hash`, `num_txes`, `timestamp`) and `tx_hashes`, never the daemon's `blob` or unrestricted body. Both are off by
+default because an exact height names the order's start or payout block, and the pool list is a network-wide read;
+enable them only on a private witness used for recovery compatibility, not on the public slice endpoint.
 
 ## Operational endpoints
 

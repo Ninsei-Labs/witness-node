@@ -271,6 +271,22 @@ export function createWitnessServer({
           : { height: tip.height, synchronized: true, nettype: tip.nettype, status: "OK" };
         return send(200, { jsonrpc: "2.0", id: body.id === undefined ? "witness" : body.id, result });
       }
+      if (req.method === "POST" && req.url === "/get_transaction_pool_hashes") {
+        // THE RECOVERY COMPATIBILITY MODE ALSO NEEDS THE POOL. This is a global list, not an order-specific read;
+        // it stays behind the same explicit flag as get_block so a public slice witness never exposes it.
+        if (!allowGetBlock) throw new WitnessSliceError("bad-request", { why: "method-not-proxied" });
+        const body = await readJson(req, maxBodyBytes);
+        if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).length !== 0) {
+          throw new WitnessSliceError("bad-request", { why: "bad-pool-params" });
+        }
+        takeSlot();
+        await readDaemonTip({ daemonUrl, network, fetchImpl, timeoutMs });
+        const answer = await daemonDirect(daemonUrl, "/get_transaction_pool_hashes", {}, fetchImpl, timeoutMs);
+        if (!Array.isArray(answer && answer.tx_hashes)) {
+          throw new WitnessSliceError("bad-daemon-answer", { why: "no-pool-hashes" });
+        }
+        return send(200, answer);
+      }
       if (req.method === "POST" && req.url === "/get_transactions") {
         const body = await readJson(req, MAX_PROXY_BODY_BYTES);
         const txids = body && Array.isArray(body.txs_hashes) ? body.txs_hashes : null;

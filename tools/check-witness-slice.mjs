@@ -42,6 +42,10 @@ const daemon = await new Promise((resolve) => {
     req.on("end", () => {
       const body = JSON.parse(raw);
       calls.push(body);
+      if (req.url === "/get_transaction_pool_hashes") {
+        res.writeHead(200, { "content-type": "application/json" });
+        return res.end(JSON.stringify({ tx_hashes: [] }));
+      }
       if (body.method === "get_info") {
         res.writeHead(200, { "content-type": "application/json" });
         return res.end(JSON.stringify({ jsonrpc: "2.0", id: body.id, result: { ...daemonState,
@@ -342,6 +346,11 @@ try {
     });
     check(notProxied.status === 400, "a JSON-RPC method other than get_info is refused");
 
+    const poolRefused = await fetch(base + "/get_transaction_pool_hashes", {
+      method: "POST", headers: { "content-type": "application/json" }, body: "{}",
+    });
+    check(poolRefused.status === 400, "the pool route is refused without the compatibility flag");
+
     const compat = createWitnessServer({ network: "stagenet", daemonUrl: daemon.url, allowGetBlock: true });
     await new Promise((resolve) => compat.listen(0, "127.0.0.1", resolve));
     try {
@@ -375,6 +384,12 @@ try {
         body: JSON.stringify({ jsonrpc: "2.0", id: "block", method: "get_block", params: { height: "105" } }),
       });
       check(badHeight.status === 400, "the compatibility read refuses a non-integer height");
+      const poolAnswer = await fetch(compatBase + "/get_transaction_pool_hashes", {
+        method: "POST", headers: { "content-type": "application/json" }, body: "{}",
+      });
+      const poolBody = await poolAnswer.json();
+      check(poolAnswer.status === 200 && Array.isArray(poolBody.tx_hashes),
+        "the compatibility mode proxies the global pool hashes");
     } finally {
       await close(compat);
     }
