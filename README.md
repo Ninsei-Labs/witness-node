@@ -290,7 +290,7 @@ A local test setup with three containers and one daemon is a protocol fixture, n
 
 The package version and the compose pin are both `0.3.1`.
 
-- The image applies Debian security upgrades at build time after the pinned base digest. The clean image scan drops the fixable glibc and zlib High findings; the remaining OpenSSL High findings have no Debian fix yet.
+- The image applies Debian security upgrades at build time after the pinned base digest. A clean scan of `sha256:41a103a5aa1648afc374afec8fa422229b483d940dbd0e790adeeb760897f948` on base `oven/bun:1.4.5-slim@sha256:b780593f3e10918cbdaec3d5a08d52224b9198069a65eb47812085c2ec007643` reports 0 Critical and 3 High OpenSSL findings with no Debian fix. The scan record and triage are in [`docs/IMAGE-SCAN.md`](docs/IMAGE-SCAN.md).
 
 ### 0.3.0 (2026-11-25)
 

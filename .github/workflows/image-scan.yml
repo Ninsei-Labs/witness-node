@@ -1,0 +1,56 @@
+name: image-scan
+
+on:
+  schedule:
+    - cron: "27 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: image-scan-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Build the scanned image
+        run: docker build --pull -t witness-node:scan .
+      - name: Record the scanned image digest
+        run: |
+          set -eu
+          image="$(docker image inspect witness-node:scan --format '{{.Id}}')"
+          echo "scanned image: $image"
+          {
+            echo "### Image scan"
+            echo ""
+            echo "- Scanned image: \`$image\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Scan fixable Critical and High findings
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: witness-node:scan
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
+      - name: Check the pinned base digest is current
+        if: always()
+        run: |
+          set -eu
+          pinned="$(sed -nE 's/^FROM .*@(sha256:[0-9a-f]{64}).*$/\1/p' Dockerfile | head -n1)"
+          latest="$(docker buildx imagetools inspect oven/bun:1.4.5-slim --format '{{.Manifest.Digest}}')"
+          test -n "$pinned"
+          {
+            echo "- Pinned base: \`$pinned\`"
+            echo "- Latest base: \`$latest\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$pinned" != "$latest" ]; then
+            echo "::error::the pinned base digest is stale: pinned $pinned, latest $latest"
+            exit 1
+          fi

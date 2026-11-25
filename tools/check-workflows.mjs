@@ -13,6 +13,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const check = readFileSync(join(ROOT, ".github", "workflows", "check.yml"), "utf8");
 const publish = readFileSync(join(ROOT, ".github", "workflows", "publish.yml"), "utf8");
 const codeql = readFileSync(join(ROOT, ".github", "workflows", "codeql.yml"), "utf8");
+const imageScan = readFileSync(join(ROOT, ".github", "workflows", "image-scan.yml"), "utf8");
 
 function namedSteps(text) {
   const result = [];
@@ -151,6 +152,23 @@ assert.deepEqual(problems, [], problems.join("\n"));
 const codeqlProblems = codeqlFindings(codeql);
 assert.deepEqual(codeqlProblems, [], codeqlProblems.join("\n"));
 
+function imageScanFindings(text) {
+  const problems = [];
+  const need = (needle, message) => { if (!text.includes(needle)) problems.push(message); };
+  need("schedule:", "image-scan.yml lost its scheduled run");
+  need("workflow_dispatch:", "image-scan.yml cannot be started by hand");
+  need("aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25",
+    "image-scan.yml does not pin the Trivy action by commit");
+  need("ignore-unfixed: true", "image-scan.yml does not ignore findings without a fix");
+  need('exit-code: "1"', "image-scan.yml does not fail on a finding");
+  need("severity: CRITICAL,HIGH", "image-scan.yml does not scan Critical and High findings");
+  need("docker buildx imagetools inspect", "image-scan.yml cannot detect a stale base digest");
+  return problems;
+}
+
+const imageScanProblems = imageScanFindings(imageScan);
+assert.deepEqual(imageScanProblems, [], imageScanProblems.join("\n"));
+
 // THE GUARD CAN FAIL. Removing each fact from a copy must name that fact.
 const mutations = [
   ["types: [opened, synchronize, reopened, ready_for_review]", "", "check.yml does not start on ready_for_review"],
@@ -201,4 +219,19 @@ for (const [needle, replacement, message] of codeqlMutations) {
   assert.ok(result.includes(message), "the workflow check accepted a copy without: " + message);
 }
 
-console.log("workflow checks: publish gates, their order, the ready-for-review trigger and CodeQL on PRs are enforced");
+const imageScanMutations = [
+  ["schedule:", "", "image-scan.yml lost its scheduled run"],
+  ["workflow_dispatch:", "", "image-scan.yml cannot be started by hand"],
+  ["aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25", "aquasecurity/trivy-action@v0.36.0",
+    "image-scan.yml does not pin the Trivy action by commit"],
+  ["ignore-unfixed: true", "ignore-unfixed: false", "image-scan.yml does not ignore findings without a fix"],
+  ['exit-code: "1"', 'exit-code: "0"', "image-scan.yml does not fail on a finding"],
+  ["severity: CRITICAL,HIGH", "severity: HIGH", "image-scan.yml does not scan Critical and High findings"],
+  ["docker buildx imagetools inspect", "", "image-scan.yml cannot detect a stale base digest"],
+];
+for (const [needle, replacement, message] of imageScanMutations) {
+  const result = imageScanFindings(imageScan.replaceAll(needle, replacement));
+  assert.ok(result.includes(message), "the workflow check accepted a copy without: " + message);
+}
+
+console.log("workflow checks: publish gates, their order, the ready-for-review trigger, CodeQL on PRs and the image scan are enforced");
