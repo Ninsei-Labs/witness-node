@@ -144,7 +144,7 @@ Optional settings:
 | `WITNESS_SLICE_DEADLINE_MS` | `55000` | total slice deadline; below the documented 60 s proxy read timeout |
 
 The service refuses to start without `WITNESS_XMR_DAEMON`. Only `WITNESS_*` names are read; the old `RFQ_*` names
-do nothing.
+do nothing. Boolean values are only `1/true/yes/on` and `0/false/no/off`; any other value is a startup error.
 
 ## Refusals
 

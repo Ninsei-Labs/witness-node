@@ -12,7 +12,7 @@ import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { createConnection } from "node:net";
 import { networkInterfaces } from "node:os";
-import { ROUTES, createWitnessServer, isLoopbackAddress, listenHostFromEnv, listenPortFromEnv } from "../src/witnessServer.mjs";
+import { ROUTES, createWitnessServer, envBoolean, isLoopbackAddress, listenHostFromEnv, listenPortFromEnv } from "../src/witnessServer.mjs";
 import {
   DAEMON_RESPONSE_LIMITS, WITNESS_SLICE_BLOCKS, WitnessSliceError,
   assertWitnessSliceShape, daemonDirect, parseWitnessSliceRequest, readWitnessSlice, witnessSliceBounds,
@@ -119,6 +119,17 @@ try {
     "the removed RFQ port alias is not read");
   check(listenPortFromEnv({ WITNESS_DEFAULT_PORT: "8797" }) === 8797,
     "the default port setting is read");
+  for (const value of ["1", "true", "yes", "on", "TRUE"]) {
+    check(envBoolean("WITNESS_ALLOW_POOL", value) === true, "a boolean on value is accepted: " + value);
+  }
+  for (const value of ["0", "false", "no", "off", "False"]) {
+    check(envBoolean("WITNESS_ALLOW_POOL", value) === false, "a boolean off value is accepted: " + value);
+  }
+  check(envBoolean("WITNESS_ALLOW_POOL", undefined) === undefined, "an unset boolean stays unset");
+  assert.throws(() => envBoolean("WITNESS_ALLOW_POOL", "enbale"), /WITNESS_ALLOW_POOL must be one of/,
+    "a boolean typo is refused and names the variable");
+  assert.throws(() => envBoolean("WITNESS_ALLOW_POOL", ""), /WITNESS_ALLOW_POOL must be one of/,
+    "an empty boolean is refused");
   check(isLoopbackAddress("127.0.0.1") && isLoopbackAddress("::1") && isLoopbackAddress("::ffff:127.0.0.1"),
     "the metrics guard recognises loopback forms");
   check(!isLoopbackAddress("203.0.113.7") && !isLoopbackAddress(""), "the metrics guard does not treat remote callers as loopback");
