@@ -297,6 +297,54 @@ try {
     check(healthBody.checks.daemon === "ok" && healthBody.checks.network === "ok",
       "readiness names the daemon and network checks");
 
+    // EIGHT SCRAPES, ONE DAEMON PROBE. Health and metrics share the in-flight promise; the first get_info is held
+    // so every caller arrives while the same probe is open.
+    {
+      let started, release;
+      const startedP = new Promise((resolve) => { started = resolve; });
+      const releaseP = new Promise((resolve) => { release = resolve; });
+      let probes = 0;
+      let held = false;
+      const single = createWitnessServer({
+        network: "stagenet", daemonUrl: daemon.url, maxInflight: 1, healthTtlMs: 5000,
+        fetchImpl: async (url, init) => {
+          const request = JSON.parse(init.body);
+          if (request.method === "get_info") {
+            probes += 1;
+            if (!held) {
+              held = true;
+              started();
+              await releaseP;
+            }
+          }
+          return fetch(url, init);
+        },
+      });
+      await new Promise((resolve) => single.listen(0, "127.0.0.1", resolve));
+      try {
+        const singleBase = "http://127.0.0.1:" + single.address().port;
+        const scrapes = Array.from({ length: 8 }, (_, i) => fetch(singleBase + (i % 2 ? "/health" : "/metrics")));
+        await startedP;
+        // ONE PROXY REQUEST IN PARALLEL. Health does not take the maxInflight slot, but the proxy still does; the
+        // total upstream count must stay at the health probe plus that one request.
+        const proxy = await fetch(singleBase + "/json_rpc", {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ jsonrpc: "2.0", id: "probe", method: "get_info", params: {} }),
+        });
+        const proxyBody = await proxy.json();
+        check(proxy.status === 200 && proxyBody.result && proxyBody.result.height === 120,
+          "one proxy request runs beside the shared health probe");
+        release();
+        const answers = await Promise.all(scrapes);
+        check(answers.every((answer) => answer.status === 200), "all shared health scrapes answer ready");
+        check(probes === 2, "eight scrapes and one proxy produce one health probe and one proxy probe");
+        for (const answer of answers) await answer.arrayBuffer();
+      } finally {
+        release();
+        await close(single);
+      }
+    }
+
     // A CLIENT ABORT MUST NOT POISON THE SHARED HEALTH CACHE. Health is a cached, shared probe, not client-owned
     // work: the first client leaves, the daemon answers, and the next readiness read must see the recovered state.
     {
