@@ -33,6 +33,8 @@ const calls = [];
 const daemonState = {
   height: 120, synchronized: true, nettype: "stagenet", busy: false, busy_syncing: false,
   untrusted: false, status: "OK", version: "0.18.5.4", peers: 3,
+  // A REAL MONEROD OMITS tx_hashes WHEN THE POOL IS EMPTY. The fake follows that answer, not a convenient [].
+  poolAnswer: { credits: 0, status: "OK", top_hash: "", untrusted: false },
 };
 
 const daemon = await new Promise((resolve) => {
@@ -44,7 +46,7 @@ const daemon = await new Promise((resolve) => {
       calls.push(body);
       if (req.url === "/get_transaction_pool_hashes") {
         res.writeHead(200, { "content-type": "application/json" });
-        return res.end(JSON.stringify({ tx_hashes: [] }));
+        return res.end(JSON.stringify(daemonState.poolAnswer));
       }
       if (body.method === "get_info") {
         res.writeHead(200, { "content-type": "application/json" });
@@ -87,9 +89,17 @@ try {
   check(listenHostFromEnv({}) === "127.0.0.1", "the witness binds loopback by default");
   check(listenHostFromEnv({ WITNESS_HOST: "0.0.0.0" }) === "0.0.0.0", "the witness host is configurable");
   check(listenHostFromEnv({ RFQ_WITNESS_HOST: "0.0.0.0" }) === "0.0.0.0", "the deprecated host alias is still read");
+  check(listenHostFromEnv({ WITNESS_DEFAULT_HOST: "0.0.0.0" }) === "0.0.0.0",
+    "the image default host is read when no explicit name is set");
+  check(listenHostFromEnv({ RFQ_WITNESS_HOST: "127.0.0.2", WITNESS_DEFAULT_HOST: "0.0.0.0" }) === "127.0.0.2",
+    "the deprecated host alias wins over the image default");
   check(listenPortFromEnv({}) === 8796, "the witness default port avoids the screen-hook example on 8795");
   check(listenPortFromEnv({ WITNESS_PORT: "9000" }) === 9000, "the witness port is configurable");
   check(listenPortFromEnv({ RFQ_WITNESS_PORT: "9001" }) === 9001, "the deprecated port alias is still read");
+  check(listenPortFromEnv({ WITNESS_DEFAULT_PORT: "8797" }) === 8797,
+    "the image default port is read when no explicit name is set");
+  check(listenPortFromEnv({ RFQ_WITNESS_PORT: "9001", WITNESS_DEFAULT_PORT: "8797" }) === 9001,
+    "the deprecated port alias wins over the image default");
   check(isLoopbackAddress("127.0.0.1") && isLoopbackAddress("::1") && isLoopbackAddress("::ffff:127.0.0.1"),
     "the metrics guard recognises loopback forms");
   check(!isLoopbackAddress("203.0.113.7") && !isLoopbackAddress(""), "the metrics guard does not treat remote callers as loopback");
@@ -353,8 +363,41 @@ try {
       method: "POST", headers: { "content-type": "application/json" }, body: "{}",
     });
     const poolBody = await poolAnswer.json();
-    check(poolAnswer.status === 200 && Array.isArray(poolBody.tx_hashes),
-      "the pool route is on by default");
+    check(poolAnswer.status === 200 && Array.isArray(poolBody.tx_hashes) && poolBody.tx_hashes.length === 0,
+      "a real daemon's empty pool without tx_hashes is an empty list");
+
+    daemonState.poolAnswer = { credits: 0, status: "OK", top_hash: "abc", untrusted: false, tx_hashes: [TXID] };
+    const poolFilled = await fetch(base + "/get_transaction_pool_hashes", {
+      method: "POST", headers: { "content-type": "application/json" }, body: "{}",
+    });
+    const poolFilledBody = await poolFilled.json();
+    check(poolFilled.status === 200 && poolFilledBody.tx_hashes.length === 1 && poolFilledBody.tx_hashes[0] === TXID,
+      "a non-empty pool returns its hashes");
+
+    daemonState.poolAnswer = { credits: 0, status: "ERROR", top_hash: "", untrusted: false, tx_hashes: [] };
+    const poolStatus = await fetch(base + "/get_transaction_pool_hashes", {
+      method: "POST", headers: { "content-type": "application/json" }, body: "{}",
+    });
+    const poolStatusBody = await poolStatus.json();
+    check(poolStatus.status === 502 && poolStatusBody.code === "bad-daemon-answer",
+      "a non-OK pool answer is a refusal");
+
+    daemonState.poolAnswer = { credits: 0, status: "OK", top_hash: "", untrusted: true, tx_hashes: [] };
+    const poolUntrusted = await fetch(base + "/get_transaction_pool_hashes", {
+      method: "POST", headers: { "content-type": "application/json" }, body: "{}",
+    });
+    const poolUntrustedBody = await poolUntrusted.json();
+    check(poolUntrusted.status === 502 && poolUntrustedBody.code === "bad-daemon-answer",
+      "an untrusted pool answer is a refusal");
+
+    daemonState.poolAnswer = { credits: 0, status: "OK", top_hash: "", untrusted: false, tx_hashes: ["not-a-hash"] };
+    const poolBadHash = await fetch(base + "/get_transaction_pool_hashes", {
+      method: "POST", headers: { "content-type": "application/json" }, body: "{}",
+    });
+    const poolBadHashBody = await poolBadHash.json();
+    check(poolBadHash.status === 502 && poolBadHashBody.code === "bad-daemon-answer",
+      "a non-list or malformed hash list is a refusal");
+    daemonState.poolAnswer = { credits: 0, status: "OK", top_hash: "", untrusted: false };
 
     const poolOff = createWitnessServer({ network: "stagenet", daemonUrl: daemon.url, allowPool: false });
     await new Promise((resolve) => poolOff.listen(0, "127.0.0.1", resolve));

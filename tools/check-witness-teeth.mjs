@@ -75,7 +75,7 @@ try {
   } finally { await close(actual.server); }
 
   const noReadiness = await mutated("no-untrusted-guard",
-    "if (answer && answer.untrusted === true) {", "if (false) {");
+    'throw new WitnessSliceError("not-synchronized", { why: "untrusted" });', "void 0;");
   const noReadinessServer = await serve(noReadiness);
   try {
     daemonUntrusted = true;

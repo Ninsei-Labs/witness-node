@@ -66,7 +66,10 @@ export function startFakeDaemon({ host = "0.0.0.0", port = 0, network = "stagene
       if (req.url === "/get_transaction_pool_hashes") {
         // THE SDK READS THE WHOLE POOL BEFORE IT CAN DECLARE ABSENCE. A fixture daemon that omits this route makes
         // the SDK correctly answer "unknown", so the interop check must model a synced node with an empty mempool.
-        return res.end(JSON.stringify({ tx_hashes: state.poolHashes ?? [] }));
+        // A real monerod omits `tx_hashes` when the pool is empty, so the fixture does the same.
+        const hashes = state.poolHashes ?? [];
+        return res.end(JSON.stringify(hashes.length ? { tx_hashes: hashes }
+          : { credits: 0, status: "OK", top_hash: "", untrusted: false }));
       }
       res.statusCode = 404;
       res.end("{}");
