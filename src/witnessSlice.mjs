@@ -14,6 +14,14 @@
 export const WITNESS_VERSION = 1;
 export const WITNESS_SLICE_BLOCKS = 20;
 
+// ROUTE-SPECIFIC CAPS ON DAEMON ANSWERS. The client body limits do not protect the witness from a daemon that
+// sends a huge pool or transaction answer: the bytes are buffered here before they are parsed or relayed.
+export const DAEMON_RESPONSE_LIMITS = Object.freeze({
+  json: 8 * 1024 * 1024,
+  pool: 1 * 1024 * 1024,
+  transactions: 32 * 1024 * 1024,
+});
+
 const HEX64 = /^[0-9a-f]{64}$/i;
 
 export class WitnessSliceError extends Error {
@@ -76,7 +84,58 @@ export function boundSignal(timeoutMs, parent = null) {
   return controller.signal;
 }
 
-async function request(daemonUrl, path, body, fetchImpl, timeoutMs, signal = null) {
+function tooLarge(limit) {
+  return new WitnessSliceError("bad-daemon-answer", { why: "response-too-large", limit });
+}
+
+async function readBoundedBody(response, limit) {
+  const declared = Number(response && response.headers && response.headers.get
+    ? response.headers.get("content-length") : NaN);
+  if (Number.isFinite(declared) && declared > limit) {
+    try { await response.body?.cancel?.(); } catch { /* the refusal is the answer */ }
+    throw tooLarge(limit);
+  }
+  // A FETCH BODY IS A STREAM, NOT A TRUSTED LENGTH. Read it in pieces and stop before the buffer grows past the
+  // cap; Content-Length is only an early hint, and a chunked answer has none.
+  if (!response.body || typeof response.body.getReader !== "function") {
+    // A REAL FETCH HAS A STREAM. Test doubles and older clients may only expose text()/json(); keep the cap after
+    // the read instead of turning a small answer into a body-read failure.
+    let text;
+    if (typeof response.text === "function") text = await response.text();
+    else if (typeof response.json === "function") text = JSON.stringify(await response.json());
+    else throw new WitnessSliceError("bad-daemon-answer", { why: "no-body" });
+    if (new TextEncoder().encode(text).byteLength > limit) throw tooLarge(limit);
+    return text;
+  }
+  const reader = response.body.getReader();
+  const chunks = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      total += value.byteLength === undefined ? value.length : value.byteLength;
+      if (total > limit) throw tooLarge(limit);
+      chunks.push(value);
+    }
+  } catch (error) {
+    if (error instanceof WitnessSliceError) throw error;
+    throw new WitnessSliceError("daemon-unavailable", { why: String((error && error.name) || "body-read").slice(0, 40) });
+  } finally {
+    try { reader.releaseLock(); } catch { /* the stream is already closed */ }
+  }
+  const merged = new Uint8Array(total);
+  let at = 0;
+  for (const chunk of chunks) {
+    merged.set(chunk, at);
+    at += chunk.byteLength === undefined ? chunk.length : chunk.byteLength;
+  }
+  return new TextDecoder().decode(merged);
+}
+
+async function request(daemonUrl, path, body, fetchImpl, timeoutMs, signal = null,
+  limitBytes = DAEMON_RESPONSE_LIMITS.json) {
   let response;
   try {
     response = await fetchImpl(daemonBaseUrl(daemonUrl) + path, {
@@ -92,8 +151,11 @@ async function request(daemonUrl, path, body, fetchImpl, timeoutMs, signal = nul
     throw new WitnessSliceError("daemon-unavailable", { status: response ? Number(response.status) || null : null });
   }
   let answer;
-  try { answer = await response.json(); }
-  catch { throw new WitnessSliceError("bad-daemon-answer", { why: "bad-json" }); }
+  try { answer = JSON.parse(await readBoundedBody(response, limitBytes)); }
+  catch (error) {
+    if (error instanceof WitnessSliceError) throw error;
+    throw new WitnessSliceError("bad-daemon-answer", { why: "bad-json" });
+  }
   if (answer && answer.error) throw new WitnessSliceError("bad-daemon-answer", { why: "rpc-error" });
   return answer;
 }
@@ -102,8 +164,8 @@ async function request(daemonUrl, path, body, fetchImpl, timeoutMs, signal = nul
  * A JSON-RPC read. Only the method the caller names is sent; the witness server exposes this for `get_info`
  * and refuses every other method, so the proxy does not become an arbitrary daemon client.
  */
-export async function daemonJsonRpc(daemonUrl, method, params = {}, fetchImpl = globalThis.fetch, timeoutMs = 8000, signal = null) {
-  const answer = await request(daemonUrl, "/json_rpc", { jsonrpc: "2.0", id: "witness", method, params }, fetchImpl, timeoutMs, signal);
+export async function daemonJsonRpc(daemonUrl, method, params = {}, fetchImpl = globalThis.fetch, timeoutMs = 8000, signal = null, limitBytes = DAEMON_RESPONSE_LIMITS.json) {
+  const answer = await request(daemonUrl, "/json_rpc", { jsonrpc: "2.0", id: "witness", method, params }, fetchImpl, timeoutMs, signal, limitBytes);
   if (!answer || !answer.result) throw new WitnessSliceError("bad-daemon-answer", { why: "no-result" });
   return answer.result;
 }
@@ -136,8 +198,8 @@ export async function readDaemonTip({ daemonUrl, network, fetchImpl = globalThis
 /**
  * A direct daemon route. The witness uses it for `/get_transactions`, whose request is the whole slice's txids.
  */
-export async function daemonDirect(daemonUrl, path, body, fetchImpl = globalThis.fetch, timeoutMs = 8000, signal = null) {
-  return request(daemonUrl, path, body, fetchImpl, timeoutMs, signal);
+export async function daemonDirect(daemonUrl, path, body, fetchImpl = globalThis.fetch, timeoutMs = 8000, signal = null, limitBytes = DAEMON_RESPONSE_LIMITS.json) {
+  return request(daemonUrl, path, body, fetchImpl, timeoutMs, signal, limitBytes);
 }
 
 /**

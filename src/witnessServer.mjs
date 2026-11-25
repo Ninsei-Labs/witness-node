@@ -12,7 +12,7 @@
 // it. `/health` probes the daemon but never prints its URL.
 import { createServer } from "node:http";
 import {
-  WITNESS_SLICE_BLOCKS, WITNESS_VERSION, WitnessSliceError,
+  DAEMON_RESPONSE_LIMITS, WITNESS_SLICE_BLOCKS, WITNESS_VERSION, WitnessSliceError,
   boundSignal, daemonDirect, parseWitnessSliceRequest, readDaemonTip, readGetBlockCompat, readWitnessSlice,
 } from "./witnessSlice.mjs";
 
@@ -316,7 +316,7 @@ export function createWitnessServer({
         }
         takeSlot();
         await readDaemonTip({ daemonUrl, network, fetchImpl, timeoutMs, signal: requestSignal });
-        const answer = await daemonDirect(daemonUrl, "/get_transaction_pool_hashes", {}, fetchImpl, timeoutMs, requestSignal);
+        const answer = await daemonDirect(daemonUrl, "/get_transaction_pool_hashes", {}, fetchImpl, timeoutMs, requestSignal, DAEMON_RESPONSE_LIMITS.pool);
         // AN EMPTY POOL IS NOT A BAD ANSWER. monerod omits `tx_hashes` when the pool is empty; the rest of the answer
         // still names a synchronized, trusted daemon. Only a non-OK, untrusted or malformed answer is a refusal.
         if (answer && answer.untrusted === true) {
@@ -340,7 +340,7 @@ export function createWitnessServer({
         }
         takeSlot();
         const answer = await daemonDirect(daemonUrl, "/get_transactions",
-          { txs_hashes: txids.map((txid) => String(txid).replace(/^0x/, "")), decode_as_json: true }, fetchImpl, timeoutMs, requestSignal);
+          { txs_hashes: txids.map((txid) => String(txid).replace(/^0x/, "")), decode_as_json: true }, fetchImpl, timeoutMs, requestSignal, DAEMON_RESPONSE_LIMITS.transactions);
         // THE SAME READINESS RULE AS THE SLICE. `/get_transactions` is the second daemon-backed route the SDK
         // needs, and its answer carries `status` and `untrusted`; a bootstrap or restricted daemon must not relay
         // transaction bodies with 200. No extra get_info call is needed.

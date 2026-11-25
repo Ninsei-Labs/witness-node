@@ -14,8 +14,8 @@ import { createConnection } from "node:net";
 import { networkInterfaces } from "node:os";
 import { ROUTES, createWitnessServer, isLoopbackAddress, listenHostFromEnv, listenPortFromEnv } from "../src/witnessServer.mjs";
 import {
-  WITNESS_SLICE_BLOCKS, WitnessSliceError,
-  assertWitnessSliceShape, parseWitnessSliceRequest, readWitnessSlice, witnessSliceBounds,
+  DAEMON_RESPONSE_LIMITS, WITNESS_SLICE_BLOCKS, WitnessSliceError,
+  assertWitnessSliceShape, daemonDirect, parseWitnessSliceRequest, readWitnessSlice, witnessSliceBounds,
 } from "../src/witnessSlice.mjs";
 
 const problems = [];
@@ -139,6 +139,45 @@ try {
     "a string slice is refused instead of coerced");
   await rejects(() => parseWitnessSliceRequest({ ...good, version: "1" }, { network: "stagenet" }), "bad-version",
     "a string version is refused instead of coerced");
+
+  // THE DAEMON ANSWER IS CAPPED WHILE IT IS READ. Content-Length is checked first; the stream cap still holds for
+  // chunked answers without that header. A body at the limit is accepted, one byte under is refused, one byte over
+  // is still accepted, so the tests prove the boundary rather than a guessed size.
+  {
+    const jsonOfSize = (bytes) => {
+      const base = JSON.stringify({ status: "OK", pad: "" });
+      return JSON.stringify({ status: "OK", pad: "x".repeat(bytes - base.length) });
+    };
+    const exactText = jsonOfSize(256);
+    const exact = new TextEncoder().encode(exactText);
+    const callLimit = (limit, response) => daemonDirect("http://daemon.invalid", "/pool",
+      {}, async () => response, 1000, null, limit);
+    const accepted = await callLimit(exact.length, new Response(exactText,
+      { headers: { "content-length": String(exact.length) } }));
+    check(accepted.status === "OK", "a daemon answer at the response limit is accepted");
+    await assert.rejects(() => callLimit(exact.length - 1, new Response(exactText,
+      { headers: { "content-length": String(exact.length) } })),
+    (error) => error instanceof WitnessSliceError && error.code === "bad-daemon-answer"
+      && error.params.why === "response-too-large", "a daemon answer over the response limit is refused");
+    const over = await callLimit(exact.length + 1, new Response(exactText,
+      { headers: { "content-length": String(exact.length) } }));
+    check(over.status === "OK", "a body smaller than the configured limit remains accepted");
+
+    const chunked = () => new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(exact.slice(0, 17));
+        controller.enqueue(exact.slice(17));
+        controller.close();
+      },
+    }));
+    await assert.rejects(() => callLimit(exact.length - 1, chunked()),
+      (error) => error instanceof WitnessSliceError && error.code === "bad-daemon-answer"
+        && error.params.why === "response-too-large", "a chunked answer is capped without Content-Length");
+    const chunkedOk = await callLimit(exact.length, chunked());
+    check(chunkedOk.status === "OK", "a chunked answer at the limit is accepted");
+    check(DAEMON_RESPONSE_LIMITS.pool < DAEMON_RESPONSE_LIMITS.transactions,
+      "the pool and transaction routes have separate caps");
+  }
 
   const slice = await readWitnessSlice({ daemonUrl: daemon.url, network: "stagenet", slice: 5 });
   check(slice.blocks.length === 20, "the reader returns every block in the slice");
@@ -518,6 +557,16 @@ try {
     const poolBadHashBody = await poolBadHash.json();
     check(poolBadHash.status === 502 && poolBadHashBody.code === "bad-daemon-answer",
       "a non-list or malformed hash list is a refusal");
+
+    daemonState.poolAnswer = { credits: 0, status: "OK", top_hash: "", untrusted: false,
+      tx_hashes: [], pad: "x".repeat(DAEMON_RESPONSE_LIMITS.pool) };
+    const poolOversized = await fetch(base + "/get_transaction_pool_hashes", {
+      method: "POST", headers: { "content-type": "application/json" }, body: "{}",
+    });
+    const poolOversizedBody = await poolOversized.json();
+    check(poolOversized.status === 502 && poolOversizedBody.code === "bad-daemon-answer"
+      && poolOversizedBody.params && poolOversizedBody.params.why === "response-too-large",
+      "the pool route refuses a daemon answer over its own cap");
     daemonState.poolAnswer = { credits: 0, status: "OK", top_hash: "", untrusted: false };
 
     const poolOff = createWitnessServer({ network: "stagenet", daemonUrl: daemon.url, allowPool: false });
