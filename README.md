@@ -278,6 +278,12 @@ A local test setup with three containers and one daemon is a protocol fixture, n
 
 ## Changelog
 
+### 0.3.1 (2026-11-25)
+
+The package version and the compose pin are both `0.3.1`.
+
+- The image applies Debian security upgrades at build time after the pinned base digest. The clean image scan drops the fixable glibc and zlib High findings; the remaining OpenSSL High findings have no Debian fix yet.
+
 ### 0.3.0 (2026-11-25)
 
 The package version and the compose pin are both `0.3.0`.
