@@ -125,6 +125,45 @@ export async function daemonDirect(daemonUrl, path, body, fetchImpl = globalThis
   return request(daemonUrl, path, body, fetchImpl, timeoutMs);
 }
 
+/**
+ * THE COMPATIBILITY READ. Only when an operator explicitly enables it, the witness answers `get_block` with the
+ * fields the recovery reader checks, not the daemon's blob or unrestricted body. This keeps the exact-height mode
+ * narrow and makes turning it on a visible deployment choice.
+ */
+export async function readGetBlockCompat({ daemonUrl, height, fetchImpl = globalThis.fetch, timeoutMs = 8000 }) {
+  const block = await daemonJsonRpc(daemonUrl, "get_block", { height }, fetchImpl, timeoutMs);
+  const header = block && block.block_header;
+  const hash = hashOf(header && header.hash);
+  if (!hash) throw new WitnessSliceError("bad-daemon-answer", { why: "no-block-hash", height });
+  const prevHash = hashOf(header && header.prev_hash);
+  if (!prevHash) throw new WitnessSliceError("bad-daemon-answer", { why: "no-prev-hash", height });
+  const numTxes = header && Number(header.num_txes);
+  if (!Number.isSafeInteger(numTxes) || numTxes < 0) {
+    throw new WitnessSliceError("bad-daemon-answer", { why: "no-num-txes", height });
+  }
+  let txHashes = Array.isArray(block.tx_hashes) ? block.tx_hashes : null;
+  if (!txHashes) {
+    let json = block.json;
+    if (typeof json === "string") {
+      try { json = JSON.parse(json); }
+      catch { throw new WitnessSliceError("bad-daemon-answer", { why: "bad-json", height }); }
+    }
+    txHashes = json && Array.isArray(json.tx_hashes) ? json.tx_hashes : null;
+  }
+  if (!Array.isArray(txHashes)) throw new WitnessSliceError("bad-daemon-answer", { why: "no-tx-hashes", height });
+  const normalized = txHashes.map(hashOf);
+  if (normalized.some((txid) => !txid)) throw new WitnessSliceError("bad-daemon-answer", { why: "bad-txid", height });
+  if (normalized.length !== numTxes) {
+    throw new WitnessSliceError("bad-daemon-answer", { why: "txid-count", height,
+      want: numTxes, got: normalized.length });
+  }
+  return {
+    block_header: { height, hash, prev_hash: prevHash, num_txes: numTxes,
+      timestamp: Number.isSafeInteger(Number(header.timestamp)) ? Number(header.timestamp) : null },
+    tx_hashes: normalized,
+  };
+}
+
 function hashOf(value) {
   const hash = String(value || "").replace(/^0x/, "").toLowerCase();
   return HEX64.test(hash) ? hash : null;
@@ -169,9 +208,21 @@ export async function readWitnessSlice({
   const blocks = [];
   for (let height = bounds.from; height <= to; height++) {
     const block = await daemonJsonRpc(daemonUrl, "get_block", { height }, fetchImpl, timeoutMs);
-    const hash = hashOf(block && block.block_header && block.block_header.hash);
+    const header = block && block.block_header;
+    const hash = hashOf(header && header.hash);
     if (!hash) throw new WitnessSliceError("bad-daemon-answer", { why: "no-block-hash", height });
-    blocks.push({ height, hash, txids: txidsOf(block) });
+    const prevHash = hashOf(header && header.prev_hash);
+    if (!prevHash) throw new WitnessSliceError("bad-daemon-answer", { why: "no-prev-hash", height });
+    const numTxes = header && Number(header.num_txes);
+    if (!Number.isSafeInteger(numTxes) || numTxes < 0) {
+      throw new WitnessSliceError("bad-daemon-answer", { why: "no-num-txes", height });
+    }
+    const txids = txidsOf(block);
+    if (txids.length !== numTxes) {
+      throw new WitnessSliceError("bad-daemon-answer", { why: "txid-count", height,
+        want: numTxes, got: txids.length });
+    }
+    blocks.push({ height, hash, prev_hash: prevHash, num_txes: numTxes, txids });
   }
   const complete = to === bounds.to;
   if (topHash && to === tipHeight && blocks[blocks.length - 1].hash !== hashOf(topHash)) {
@@ -206,8 +257,15 @@ export function assertWitnessSliceShape(slice, { network, grid = WITNESS_SLICE_B
     const block = slice.blocks[i];
     if (!block || Number(block.height) !== bounds.from + i) throw new WitnessSliceError("bad-daemon-answer", { why: "height" });
     if (!hashOf(block.hash)) throw new WitnessSliceError("bad-daemon-answer", { why: "hash" });
+    if (!hashOf(block.prev_hash)) throw new WitnessSliceError("bad-daemon-answer", { why: "prev-hash" });
+    const numTxes = Number(block.num_txes);
+    if (!Number.isSafeInteger(numTxes) || numTxes < 0) throw new WitnessSliceError("bad-daemon-answer", { why: "num-txes" });
     if (!Array.isArray(block.txids) || block.txids.some((txid) => !hashOf(txid))) {
       throw new WitnessSliceError("bad-daemon-answer", { why: "txids" });
+    }
+    if (block.txids.length !== numTxes) throw new WitnessSliceError("bad-daemon-answer", { why: "txid-count" });
+    if (i > 0 && String(block.prev_hash).toLowerCase() !== String(slice.blocks[i - 1].hash).toLowerCase()) {
+      throw new WitnessSliceError("bad-daemon-answer", { why: "chain" });
     }
   }
   if (slice.complete) {

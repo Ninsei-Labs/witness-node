@@ -15,15 +15,21 @@ GET  /live
 GET  /health
 GET  /metrics          loopback only unless RFQ_WITNESS_METRICS_PUBLISH=1
 GET  /info
-POST /json_rpc          get_info only
+POST /json_rpc          get_info; get_block only with RFQ_WITNESS_ALLOW_GET_BLOCK=1
 POST /get_transactions  1 to 4096 txids
 POST /v1/witness/slice  {version, network, grid, slice}
 ```
 
 The SDK reads the tip and the transaction bodies from the same witness. The slice request contains no order height,
 block, txid or order id. The slice below the tip is complete; the slice that contains the tip ends at the top block,
-sets `complete: false`, and names that block in `tip`. `/get_transactions` refuses an untrusted daemon with
-`503 not-synchronized`, a busy daemon with `503 busy`, and any other non-OK status with `502 bad-daemon-answer`.
+sets `complete: false`, and names that block in `tip`. Each slice block carries `prev_hash` and `num_txes` as well as
+`hash` and `txids`, so a client can check the chain and the transaction count without an exact-height read.
+`/get_transactions` refuses an untrusted daemon with `503 not-synchronized`, a busy daemon with `503 busy`, and any
+other non-OK status with `502 bad-daemon-answer`.
+
+`RFQ_WITNESS_ALLOW_GET_BLOCK=1` is off by default. It adds a narrow exact-height `get_block` compatibility method for a
+private recovery witness; the answer carries only `block_header` and `tx_hashes`, never the daemon `blob`. Do not enable
+it on the public slice endpoint: an exact height names the order's start or payout block.
 
 `/live` is liveness, `/health` is readiness against the daemon and network, `/metrics` is Prometheus text, and
 `/info` names the protocol and optional operator metadata. The health probe never prints the daemon URL. Metrics

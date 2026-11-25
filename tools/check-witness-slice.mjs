@@ -65,7 +65,7 @@ const daemon = await new Promise((resolve) => {
       const empty = height === 106;
       const answer = JSON.stringify({
         result: {
-          block_header: { hash: hash(height), num_txes: empty ? 0 : (height === 105 ? 1 : 0) },
+          block_header: { hash: hash(height), prev_hash: hash(height - 1), num_txes: empty ? 0 : (height === 105 ? 1 : 0) },
           ...(empty ? {} : { tx_hashes: height === 105 ? [TXID] : [] }),
         },
       });
@@ -111,6 +111,8 @@ try {
   check(slice.complete === true && slice.tip === null, "a slice below the tip is complete and names no partial tip");
   check(slice.blocks[0].height === 100 && slice.blocks[19].height === 119, "the slice starts and ends on the grid");
   check(slice.blocks[5].txids.length === 1 && slice.blocks[5].txids[0] === TXID, "a block keeps its transactions");
+  check(slice.blocks[0].prev_hash === hash(99) && slice.blocks[0].num_txes === 0,
+    "a block carries its parent hash and transaction count");
   check(slice.blocks[6].txids.length === 0, "an empty block without tx_hashes is accepted by num_txes: 0");
   const blockCalls = calls.filter((call) => call.method === "get_block");
   check(blockCalls.length === 20 && blockCalls.every((call) => call.method === "get_block"), "the daemon is asked for blocks only");
@@ -129,7 +131,8 @@ try {
     } else {
       const atTip = await readWitnessSlice({ daemonUrl: daemon.url, network: "stagenet", slice: 5 });
       assert.equal(atTip.blocks.length, blockHeights.length, "every available block is returned");
-      assert.deepEqual(atTip.blocks, blockHeights.map((height) => ({ height, hash: hash(height), txids: [] })));
+      assert.deepEqual(atTip.blocks, blockHeights.map((height) => ({ height, hash: hash(height),
+        prev_hash: hash(height - 1), num_txes: 0, txids: [] })));
       assert.deepEqual({ version: atTip.version, network: atTip.network, grid: atTip.grid, slice: atTip.slice,
         from: atTip.from, to: atTip.to, complete: atTip.complete, tip: atTip.tip },
       { version: 1, network: "stagenet", grid: 20, slice: 5, from: 100, to: height - 1,
@@ -168,6 +171,15 @@ try {
   const wrongHeight = { ...slice, blocks: slice.blocks.map((block, i) => i === 0 ? { ...block, height: 101 } : block) };
   await rejects(() => assertWitnessSliceShape(wrongHeight, { network: "stagenet" }), "bad-daemon-answer",
     "a non-consecutive block height is refused");
+  const wrongParent = { ...slice, blocks: slice.blocks.map((block, i) => i === 1 ? { ...block, prev_hash: hash(42) } : block) };
+  await rejects(() => assertWitnessSliceShape(wrongParent, { network: "stagenet" }), "bad-daemon-answer",
+    "a block whose parent is not the previous block hash is refused");
+  const wrongCount = { ...slice, blocks: slice.blocks.map((block, i) => i === 5 ? { ...block, num_txes: 2 } : block) };
+  await rejects(() => assertWitnessSliceShape(wrongCount, { network: "stagenet" }), "bad-daemon-answer",
+    "a transaction count that disagrees with the txids is refused");
+  const missingParent = { ...slice, blocks: slice.blocks.map((block, i) => i === 0 ? { ...block, prev_hash: null } : block) };
+  await rejects(() => assertWitnessSliceShape(missingParent, { network: "stagenet" }), "bad-daemon-answer",
+    "a block without a parent hash is refused");
   await rejects(() => assertWitnessSliceShape({ ...tipSlice, complete: true }, { network: "stagenet" }),
     "bad-daemon-answer", "a partial slice that claims to be complete is refused");
   await rejects(() => assertWitnessSliceShape({ ...tipSlice, tip: { ...tipSlice.tip, height: 119 } }, { network: "stagenet" }),
@@ -205,7 +217,8 @@ try {
   const dyingFetch = async () => {
     dyingCalls += 1;
     if (dyingCalls > 2) throw new Error("daemon socket closed");
-    return { ok: true, json: async () => ({ result: { block_header: { hash: hash(100 + dyingCalls) }, tx_hashes: [] } }) };
+    return { ok: true, json: async () => ({ result: { block_header: { hash: hash(100 + dyingCalls),
+      prev_hash: hash(99 + dyingCalls), num_txes: 0 }, tx_hashes: [] } }) };
   };
   await rejects(() => readWitnessSlice({ daemonUrl: "http://127.0.0.1:1", network: "stagenet", slice: 5, top: 119,
     fetchImpl: dyingFetch, timeoutMs: 50 }), "daemon-unavailable", "a daemon that dies mid-slice does not become empty blocks");
@@ -329,6 +342,43 @@ try {
     });
     check(notProxied.status === 400, "a JSON-RPC method other than get_info is refused");
 
+    const compat = createWitnessServer({ network: "stagenet", daemonUrl: daemon.url, allowGetBlock: true });
+    await new Promise((resolve) => compat.listen(0, "127.0.0.1", resolve));
+    try {
+      const compatBase = "http://127.0.0.1:" + compat.address().port;
+      const compatLive = await fetch(compatBase + "/live");
+      const compatLiveBody = await compatLive.json();
+      check(compatLive.status === 200 && compatLiveBody.features && compatLiveBody.features.getBlock === true,
+        "the explicit flag advertises get_block on liveness");
+      const blockAnswer = await fetch(compatBase + "/json_rpc", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: "block", method: "get_block", params: { height: 105 } }),
+      });
+      const blockBody = await blockAnswer.json();
+      check(blockAnswer.status === 200 && blockBody.result && blockBody.result.block_header.hash === hash(105),
+        "the explicit flag answers get_block");
+      check(blockBody.result.block_header.prev_hash === hash(104)
+        && blockBody.result.block_header.num_txes === 1
+        && blockBody.result.tx_hashes.length === 1 && blockBody.result.tx_hashes[0] === TXID,
+        "the compatibility answer carries the parent, count and txids");
+      check(!("blob" in blockBody.result) && !("json" in blockBody.result),
+        "the compatibility answer does not relay the daemon blob or full body");
+      const beyond = await fetch(compatBase + "/json_rpc", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: "block", method: "get_block", params: { height: 120 } }),
+      });
+      const beyondBody = await beyond.json();
+      check(beyond.status === 503 && beyondBody.code === "not-synchronized" && beyondBody.params.why === "beyond-tip",
+        "the compatibility read refuses a height above the tip");
+      const badHeight = await fetch(compatBase + "/json_rpc", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: "block", method: "get_block", params: { height: "105" } }),
+      });
+      check(badHeight.status === 400, "the compatibility read refuses a non-integer height");
+    } finally {
+      await close(compat);
+    }
+
     const badTxids = await fetch(base + "/get_transactions", {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ txs_hashes: ["not-a-txid"], decode_as_json: true }),
@@ -375,7 +425,7 @@ try {
     const firstTipBody = await firstTipAnswer.json();
     assert.equal(firstTipAnswer.status, 200, "a slice starting at the tip is available through HTTP");
     assert.deepEqual(firstTipBody, { version: 1, network: "stagenet", grid: 20, slice: 5,
-      from: 100, to: 100, complete: false, blocks: [{ height: 100, hash: hash(100), txids: [] }],
+      from: 100, to: 100, complete: false, blocks: [{ height: 100, hash: hash(100), prev_hash: hash(99), num_txes: 0, txids: [] }],
       tip: { height: 100, hash: hash(100) } });
     const nextTipAnswer = await fetch(base + "/v1/witness/slice", {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...good, slice: 6 }),

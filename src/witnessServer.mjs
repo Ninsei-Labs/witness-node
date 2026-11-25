@@ -13,7 +13,7 @@
 import { createServer } from "node:http";
 import {
   WITNESS_SLICE_BLOCKS, WITNESS_VERSION, WitnessSliceError,
-  daemonDirect, parseWitnessSliceRequest, readDaemonTip, readWitnessSlice,
+  daemonDirect, parseWitnessSliceRequest, readDaemonTip, readGetBlockCompat, readWitnessSlice,
 } from "./witnessSlice.mjs";
 
 const SERVICE = "Ninsei-Witness";
@@ -91,12 +91,13 @@ async function readJson(req, limit) {
  * CREATE, DO NOT START. The caller owns the port and can close the server in a check.
  * @param {{network: string, daemonUrl: string, allowOrigin?: string, operator?: string|null,
  *   contact?: string|null, metricsPublished?: boolean, healthTtlMs?: number, maxInflight?: number,
- *   fetchImpl?: Function, timeoutMs?: number, maxBodyBytes?: number}} config
+ *   fetchImpl?: Function, timeoutMs?: number, maxBodyBytes?: number, allowGetBlock?: boolean}} config
  */
 export function createWitnessServer({
   network, daemonUrl, allowOrigin = "*", operator = null, contact = null, metricsPublished = false,
   healthTtlMs = 5000, maxInflight = 4, fetchImpl = globalThis.fetch, timeoutMs = 8000,
   maxBodyBytes = MAX_BODY_BYTES, requestTimeoutMs = 10000, headersTimeoutMs = 10000,
+  allowGetBlock = false,
 } = {}) {
   if (!network) throw new Error("witness server: network is required");
   if (!daemonUrl) throw new Error("witness server: daemon URL is required");
@@ -193,7 +194,7 @@ export function createWitnessServer({
 
     if (req.method === "GET" && req.url === "/live") {
       return send(200, { ok: true, service: SERVICE, version: WITNESS_VERSION, network, grid: WITNESS_SLICE_BLOCKS,
-        routes: ROUTES });
+        features: { getBlock: allowGetBlock }, routes: ROUTES });
     }
 
     if (req.method === "GET" && req.url === "/health") {
@@ -209,6 +210,7 @@ export function createWitnessServer({
       return send(200, {
         ok: true, service: SERVICE, protocol: PROTOCOL, version: WITNESS_VERSION, network,
         grid: WITNESS_SLICE_BLOCKS, operator: operator || null, contact: contact || null,
+        features: { getBlock: allowGetBlock },
         uptimeSec: Math.round((Date.now() - startedAt) / 1000), startedAt: new Date(startedAt).toISOString(),
       });
     }
@@ -240,14 +242,33 @@ export function createWitnessServer({
       // order; `get_transactions` is asked for the whole slice's txids, which the slice answer already disclosed.
       if (req.method === "POST" && req.url === "/json_rpc") {
         const body = await readJson(req, maxBodyBytes);
-        if (!body || typeof body !== "object" || body.method !== "get_info") {
+        const method = body && typeof body === "object" ? body.method : null;
+        const getBlock = method === "get_block" && allowGetBlock;
+        if (method !== "get_info" && !getBlock) {
           throw new WitnessSliceError("bad-request", { why: "method-not-proxied" });
+        }
+        let height = null;
+        if (getBlock) {
+          const params = body.params;
+          const keys = params && typeof params === "object" && !Array.isArray(params) ? Object.keys(params) : [];
+          if (keys.length !== 1 || keys[0] !== "height") {
+            throw new WitnessSliceError("bad-request", { why: "bad-block-params" });
+          }
+          height = params.height;
+          if (!Number.isSafeInteger(height) || height < 0) {
+            throw new WitnessSliceError("bad-request", { why: "bad-height" });
+          }
         }
         takeSlot();
         const tip = await readDaemonTip({ daemonUrl, network, fetchImpl, timeoutMs });
+        if (getBlock && height > tip.top) {
+          throw new WitnessSliceError("not-synchronized", { why: "beyond-tip", height, top: tip.top });
+        }
         // ONLY THE FIELDS THE CLIENT CHECKS. The daemon's version, peers, disk space and bootstrap address are
         // not the witness's to publish.
-        const result = { height: tip.height, synchronized: true, nettype: tip.nettype, status: "OK" };
+        const result = getBlock
+          ? await readGetBlockCompat({ daemonUrl, height, fetchImpl, timeoutMs })
+          : { height: tip.height, synchronized: true, nettype: tip.nettype, status: "OK" };
         return send(200, { jsonrpc: "2.0", id: body.id === undefined ? "witness" : body.id, result });
       }
       if (req.method === "POST" && req.url === "/get_transactions") {
