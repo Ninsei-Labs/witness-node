@@ -18,6 +18,7 @@
 //   WITNESS_HEALTH_TTL_MS    readiness probe cache (default: 5000)
 //   WITNESS_MAX_INFLIGHT     concurrent daemon-backed requests (default: 4)
 //   WITNESS_REQUEST_TIMEOUT_MS  request and header deadline (default: 10000)
+//   WITNESS_SLICE_DEADLINE_MS   total slice deadline (default: 55000)
 //
 import { ROUTES, createWitnessServer, envBoolean, envText, listenHostFromEnv, listenPortFromEnv } from "./src/witnessServer.mjs";
 import { WITNESS_SLICE_BLOCKS, WITNESS_VERSION } from "./src/witnessSlice.mjs";
@@ -59,6 +60,12 @@ if (!Number.isInteger(requestTimeoutMs) || requestTimeoutMs <= 0) {
   console.error("witness: WITNESS_REQUEST_TIMEOUT_MS must be a positive integer");
   process.exit(1);
 }
+const rawSliceDeadline = envValue("WITNESS_SLICE_DEADLINE_MS");
+const sliceDeadlineMs = rawSliceDeadline === undefined ? 55000 : Number(rawSliceDeadline);
+if (!Number.isInteger(sliceDeadlineMs) || sliceDeadlineMs <= 0) {
+  console.error("witness: WITNESS_SLICE_DEADLINE_MS must be a positive integer");
+  process.exit(1);
+}
 const operator = envText(envValue("WITNESS_OPERATOR"), 80);
 const contact = envText(envValue("WITNESS_CONTACT"), 200);
 const metricsPublished = envBoolean(envValue("WITNESS_METRICS_PUBLISH"));
@@ -68,7 +75,7 @@ const allowPool = rawAllowPool === undefined ? true : envBoolean(rawAllowPool);
 
 const server = createWitnessServer({
   network, daemonUrl, allowOrigin, operator, contact, metricsPublished, healthTtlMs, maxInflight, timeoutMs,
-  requestTimeoutMs, headersTimeoutMs: requestTimeoutMs, allowGetBlock, allowPool,
+  requestTimeoutMs, headersTimeoutMs: requestTimeoutMs, allowGetBlock, allowPool, sliceDeadlineMs,
 });
 server.on("error", (error) => {
   console.error(JSON.stringify({ event: "witness_listener_failed", why: String((error && error.message) || error) }));

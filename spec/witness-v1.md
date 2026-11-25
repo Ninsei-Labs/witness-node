@@ -141,6 +141,7 @@ Optional settings:
 | `WITNESS_HEALTH_TTL_MS` | `5000` | readiness probe cache |
 | `WITNESS_MAX_INFLIGHT` | `4` | concurrent daemon-backed requests; excess requests get `503 busy` |
 | `WITNESS_REQUEST_TIMEOUT_MS` | `10000` | request and header deadline in milliseconds |
+| `WITNESS_SLICE_DEADLINE_MS` | `55000` | total slice deadline; below the documented 60 s proxy read timeout |
 
 The service refuses to start without `WITNESS_XMR_DAEMON`. Only `WITNESS_*` names are read; the old `RFQ_*` names
 do nothing.

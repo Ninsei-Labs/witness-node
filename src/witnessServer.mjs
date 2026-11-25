@@ -13,7 +13,7 @@
 import { createServer } from "node:http";
 import {
   WITNESS_SLICE_BLOCKS, WITNESS_VERSION, WitnessSliceError,
-  daemonDirect, parseWitnessSliceRequest, readDaemonTip, readGetBlockCompat, readWitnessSlice,
+  boundSignal, daemonDirect, parseWitnessSliceRequest, readDaemonTip, readGetBlockCompat, readWitnessSlice,
 } from "./witnessSlice.mjs";
 
 const SERVICE = "Ninsei-Witness";
@@ -102,19 +102,20 @@ async function readJson(req, limit) {
  * @param {{network: string, daemonUrl: string, allowOrigin?: string, operator?: string|null,
  *   contact?: string|null, metricsPublished?: boolean, healthTtlMs?: number, maxInflight?: number,
  *   fetchImpl?: Function, timeoutMs?: number, maxBodyBytes?: number, allowGetBlock?: boolean,
- *   allowPool?: boolean}} config
+ *   allowPool?: boolean, sliceDeadlineMs?: number}} config
  */
 export function createWitnessServer({
   network, daemonUrl, allowOrigin = "*", operator = null, contact = null, metricsPublished = false,
   healthTtlMs = 5000, maxInflight = 4, fetchImpl = globalThis.fetch, timeoutMs = 8000,
   maxBodyBytes = MAX_BODY_BYTES, requestTimeoutMs = 10000, headersTimeoutMs = 10000,
-  allowGetBlock = false, allowPool = true,
+  allowGetBlock = false, allowPool = true, sliceDeadlineMs = 55000,
 } = {}) {
   if (!network) throw new Error("witness server: network is required");
   if (!daemonUrl) throw new Error("witness server: daemon URL is required");
   if (!Number.isInteger(maxInflight) || maxInflight < 1) throw new Error("witness server: maxInflight must be a positive integer");
   if (!Number.isInteger(requestTimeoutMs) || requestTimeoutMs < 1) throw new Error("witness server: requestTimeoutMs must be a positive integer");
   if (!Number.isInteger(headersTimeoutMs) || headersTimeoutMs < 1) throw new Error("witness server: headersTimeoutMs must be a positive integer");
+  if (!Number.isInteger(sliceDeadlineMs) || sliceDeadlineMs < 1) throw new Error("witness server: sliceDeadlineMs must be a positive integer");
   const cors = String(allowOrigin || "*");
   const startedAt = Date.now();
   const requests = new Map();
@@ -178,6 +179,13 @@ export function createWitnessServer({
 
   const server = createServer(async (req, res) => {
     const route = routeKey(req.url);
+    // THE CLIENT OWNS THE WORK. A response that closes before it is finished cancels every daemon read started for
+    // this request; the timeout signal alone cannot know that nobody is waiting.
+    const clientAbort = new AbortController();
+    res.once("close", () => {
+      if (!res.writableEnded) clientAbort.abort(new Error("client-disconnected"));
+    });
+    const requestSignal = clientAbort.signal;
     const send = (code, body, contentType, corsHeaders = true) => {
       note(route, code);
       res.writeHead(code, {
@@ -279,14 +287,14 @@ export function createWitnessServer({
           }
         }
         takeSlot();
-        const tip = await readDaemonTip({ daemonUrl, network, fetchImpl, timeoutMs });
+        const tip = await readDaemonTip({ daemonUrl, network, fetchImpl, timeoutMs, signal: requestSignal });
         if (getBlock && height > tip.top) {
           throw new WitnessSliceError("not-synchronized", { why: "beyond-tip", height, top: tip.top });
         }
         // ONLY THE FIELDS THE CLIENT CHECKS. The daemon's version, peers, disk space and bootstrap address are
         // not the witness's to publish.
         const result = getBlock
-          ? await readGetBlockCompat({ daemonUrl, height, fetchImpl, timeoutMs })
+          ? await readGetBlockCompat({ daemonUrl, height, fetchImpl, timeoutMs, signal: requestSignal })
           : { height: tip.height, synchronized: true, nettype: tip.nettype, status: "OK" };
         return send(200, { jsonrpc: "2.0", id: body.id === undefined ? "witness" : body.id, result });
       }
@@ -299,8 +307,8 @@ export function createWitnessServer({
           throw new WitnessSliceError("bad-request", { why: "bad-pool-params" });
         }
         takeSlot();
-        await readDaemonTip({ daemonUrl, network, fetchImpl, timeoutMs });
-        const answer = await daemonDirect(daemonUrl, "/get_transaction_pool_hashes", {}, fetchImpl, timeoutMs);
+        await readDaemonTip({ daemonUrl, network, fetchImpl, timeoutMs, signal: requestSignal });
+        const answer = await daemonDirect(daemonUrl, "/get_transaction_pool_hashes", {}, fetchImpl, timeoutMs, requestSignal);
         // AN EMPTY POOL IS NOT A BAD ANSWER. monerod omits `tx_hashes` when the pool is empty; the rest of the answer
         // still names a synchronized, trusted daemon. Only a non-OK, untrusted or malformed answer is a refusal.
         if (answer && answer.untrusted === true) {
@@ -324,7 +332,7 @@ export function createWitnessServer({
         }
         takeSlot();
         const answer = await daemonDirect(daemonUrl, "/get_transactions",
-          { txs_hashes: txids.map((txid) => String(txid).replace(/^0x/, "")), decode_as_json: true }, fetchImpl, timeoutMs);
+          { txs_hashes: txids.map((txid) => String(txid).replace(/^0x/, "")), decode_as_json: true }, fetchImpl, timeoutMs, requestSignal);
         // THE SAME READINESS RULE AS THE SLICE. `/get_transactions` is the second daemon-backed route the SDK
         // needs, and its answer carries `status` and `untrusted`; a bootstrap or restricted daemon must not relay
         // transaction bodies with 200. No extra get_info call is needed.
@@ -342,9 +350,10 @@ export function createWitnessServer({
       const body = await readJson(req, maxBodyBytes);
       const sliceRequest = parseWitnessSliceRequest(body, { network, grid: WITNESS_SLICE_BLOCKS });
       takeSlot();
-      const tip = await readDaemonTip({ daemonUrl, network, fetchImpl, timeoutMs });
+      const sliceSignal = boundSignal(sliceDeadlineMs, requestSignal);
+      const tip = await readDaemonTip({ daemonUrl, network, fetchImpl, timeoutMs, signal: sliceSignal });
       const slice = await readWitnessSlice({ daemonUrl, network, ...sliceRequest, top: tip.top,
-        topHash: tip.topBlockHash, fetchImpl, timeoutMs });
+        topHash: tip.topBlockHash, fetchImpl, timeoutMs, signal: sliceSignal });
       return send(200, slice);
     } catch (error) {
       const answer = refusal(error);
@@ -352,6 +361,7 @@ export function createWitnessServer({
         // The request body is paused; answer first, then close instead of draining an unbounded stream.
         res.once("finish", () => req.destroy());
       }
+      if (res.destroyed || res.writableEnded) return;
       return send(answer.status, answer.body);
     } finally {
       if (slot) inflight -= 1;
