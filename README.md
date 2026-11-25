@@ -6,7 +6,8 @@ client that must not learn the order's exact start or payout height.
 
 ## Protocol
 
-See [`spec/witness-v1.md`](spec/witness-v1.md).
+See [`spec/witness-v1.md`](spec/witness-v1.md) for the slice protocol and [`docs/RPC.md`](docs/RPC.md) for the
+Monero RPC allowlist, parameter reshaping and refusal profile. This service is not a generic `monerod` proxy.
 
 Routes:
 
@@ -268,6 +269,7 @@ bun run check:container
 
 - No private key, seed, wallet or order state is stored or accepted.
 - The service only reads a Monero daemon. It does not sign or send transactions.
+- The RPC surface is an explicit allowlist, documented in [`docs/RPC.md`](docs/RPC.md), not a generic daemon proxy.
 - `/json_rpc` is restricted to `get_info` by default. `/get_transactions` accepts 1 to 4096 64-hex txids.
   `WITNESS_ALLOW_GET_BLOCK=1` adds exact-height `get_block` for a private recovery witness; do not enable it on the
   public slice endpoint. The global pool-hashes route is on by default and `WITNESS_ALLOW_POOL=0` turns it off.
