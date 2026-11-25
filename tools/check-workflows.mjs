@@ -62,6 +62,7 @@ function findings(checkText, publishText) {
   need(checkText, "repository: Ninsei-Labs/sdk", "check.yml does not check out the SDK client");
   need(checkText, "ref: " + PUBLISH_SDK_PIN, "check.yml does not pin the SDK commit");
   need(checkText, "Run the SDK/witness interop check", "check.yml does not run the SDK/witness interop check");
+  need(checkText, "Run the real monerod regtest check", "check.yml does not run the real monerod regtest check");
   need(checkText, "Versions must agree before a build", "check.yml has no version agreement gate");
   ordered(checkText, "Versions must agree before a build", "Build the image",
     "check.yml builds before checking that the versions agree");
@@ -145,6 +146,7 @@ const mutations = [
   ["state\" != success", "", "publish.yml does not refuse a CI run that did not pass"],
   ["repository: Ninsei-Labs/sdk", "", "check.yml does not check out the SDK client"],
   ["ref: " + PUBLISH_SDK_PIN, "ref: main", "check.yml does not pin the SDK commit"],
+  ["Run the real monerod regtest check", "", "check.yml does not run the real monerod regtest check"],
   ["run: bun run check:interop", "", "publish.yml does not run the SDK/witness interop check"],
   ["Versions must agree before a build", "Version check missing", "check.yml has no version agreement gate"],
   ["--provenance=true", "", "publish.yml publishes without provenance"],
@@ -162,8 +164,8 @@ const mutations = [
     "publish.yml moves latest without the release condition"],
 ];
 for (const [needle, replacement, message] of mutations) {
-  const checkCopy = check.replace(needle, replacement);
-  const publishCopy = publish.replace(needle, replacement);
+  const checkCopy = check.replaceAll(needle, replacement);
+  const publishCopy = publish.replaceAll(needle, replacement);
   const result = findings(checkCopy, publishCopy);
   assert.ok(result.includes(message), "the workflow check accepted a copy without: " + message);
 }
