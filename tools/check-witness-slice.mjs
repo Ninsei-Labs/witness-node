@@ -32,7 +32,8 @@ const rejects = async (fn, code, message) => {
 // example refuses with its catch-all 404; this catches that drift without importing a proxy into the test.
 {
   const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
-  const start = readme.indexOf("server {");
+  const tls = readme.indexOf("listen 443");
+  const start = tls >= 0 ? readme.lastIndexOf("server {", tls) : readme.indexOf("server {");
   const end = readme.indexOf("location / {", start);
   const proxyBlock = start >= 0 && end > start ? readme.slice(start, end) : "";
   for (const route of ROUTES) {
@@ -274,8 +275,9 @@ try {
 
     const wrongMethod = await fetch(base + "/live", { method: "POST" });
     const wrongMethodBody = await wrongMethod.json();
-    check(wrongMethod.status === 405 && wrongMethodBody.code === "method-not-allowed",
-      "the route registry refuses a wrong method");
+    check(wrongMethod.status === 405 && wrongMethodBody.code === "method-not-allowed"
+      && wrongMethod.headers.get("allow") === "GET",
+      "the route registry refuses a wrong method and names the allowed one");
 
     const info = await fetch(base + "/json_rpc", {
       method: "POST", headers: { "content-type": "application/json" },

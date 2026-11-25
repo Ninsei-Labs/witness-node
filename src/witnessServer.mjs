@@ -207,6 +207,7 @@ export function createWitnessServer({
     // fall through to another handler or to the catch-all 404.
     const expectedMethod = ROUTE_METHODS[req.url];
     if (expectedMethod && req.method !== expectedMethod) {
+      res.setHeader("allow", expectedMethod);
       return send(405, { ok: false, code: "method-not-allowed", allow: expectedMethod });
     }
 
