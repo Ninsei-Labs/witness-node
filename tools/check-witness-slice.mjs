@@ -325,11 +325,19 @@ try {
         const singleBase = "http://127.0.0.1:" + single.address().port;
         const scrapes = Array.from({ length: 8 }, (_, i) => fetch(singleBase + (i % 2 ? "/health" : "/metrics")));
         await startedP;
-        check(probes === 1, "parallel health and metrics scrapes share one daemon probe");
+        // ONE PROXY REQUEST IN PARALLEL. Health does not take the maxInflight slot, but the proxy still does; the
+        // total upstream count must stay at the health probe plus that one request.
+        const proxy = await fetch(singleBase + "/json_rpc", {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ jsonrpc: "2.0", id: "probe", method: "get_info", params: {} }),
+        });
+        const proxyBody = await proxy.json();
+        check(proxy.status === 200 && proxyBody.result && proxyBody.result.height === 120,
+          "one proxy request runs beside the shared health probe");
         release();
         const answers = await Promise.all(scrapes);
         check(answers.every((answer) => answer.status === 200), "all shared health scrapes answer ready");
-        check(probes === 1, "the shared probe does not repeat after it settles");
+        check(probes === 2, "eight scrapes and one proxy produce one health probe and one proxy probe");
         for (const answer of answers) await answer.arrayBuffer();
       } finally {
         release();
