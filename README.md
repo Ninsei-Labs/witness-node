@@ -263,7 +263,9 @@ bun run check:container
 
 - No private key, seed, wallet or order state is stored or accepted.
 - The service only reads a Monero daemon. It does not sign or send transactions.
-- `/json_rpc` is restricted to `get_info`. `/get_transactions` accepts 1 to 4096 64-hex txids.
+- `/json_rpc` is restricted to `get_info` by default. `/get_transactions` accepts 1 to 4096 64-hex txids.
+  `WITNESS_ALLOW_GET_BLOCK=1` adds exact-height `get_block` for a private recovery witness; do not enable it on the
+  public slice endpoint. The global pool-hashes route is on by default and `WITNESS_ALLOW_POOL=0` turns it off.
 - CORS is configurable with `WITNESS_ALLOW_ORIGIN`. A public test witness can use `*`; a site can name its
   origin.
 - The witness still sees the caller's IP and the 20-block bucket. It does not see the exact order start, payout block,
@@ -276,6 +278,15 @@ Two instances under one operator are one opinion. A production arrival quorum ne
 A local test setup with three containers and one daemon is a protocol fixture, not an independence proof.
 
 ## Changelog
+
+### 0.2.0 (2026-11-25)
+
+The package version and the compose pin are both `0.2.0`.
+
+- Slice blocks now carry `prev_hash` and `num_txes`, so a client can verify the chain and the transaction count without an exact-height request.
+- `WITNESS_ALLOW_GET_BLOCK=1` adds a narrow exact-height `get_block` method for a private recovery witness; it is off by default. The global pool-hashes route is on by default and `WITNESS_ALLOW_POOL=0` turns it off.
+- Settings use `WITNESS_*` names. The old `RFQ_XMR_DAEMON` and `RFQ_WITNESS_*` names are deprecated aliases until 1.0.0.
+- The slice reader refuses a missing parent, a bad transaction count, a chain break and malformed fields.
 
 ### 0.1.3 (2026-11-21)
 
