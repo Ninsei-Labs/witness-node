@@ -85,8 +85,11 @@ try {
   const bounds = witnessSliceBounds(5);
   check(bounds.from === 100 && bounds.to === 119, "slice 5 covers blocks 100..119");
   check(listenHostFromEnv({}) === "127.0.0.1", "the witness binds loopback by default");
+  check(listenHostFromEnv({ WITNESS_HOST: "0.0.0.0" }) === "0.0.0.0", "the witness host is configurable");
+  check(listenHostFromEnv({ RFQ_WITNESS_HOST: "0.0.0.0" }) === "0.0.0.0", "the deprecated host alias is still read");
   check(listenPortFromEnv({}) === 8796, "the witness default port avoids the screen-hook example on 8795");
-  check(listenPortFromEnv({ RFQ_WITNESS_PORT: "9000" }) === 9000, "the witness port is configurable");
+  check(listenPortFromEnv({ WITNESS_PORT: "9000" }) === 9000, "the witness port is configurable");
+  check(listenPortFromEnv({ RFQ_WITNESS_PORT: "9001" }) === 9001, "the deprecated port alias is still read");
   check(isLoopbackAddress("127.0.0.1") && isLoopbackAddress("::1") && isLoopbackAddress("::ffff:127.0.0.1"),
     "the metrics guard recognises loopback forms");
   check(!isLoopbackAddress("203.0.113.7") && !isLoopbackAddress(""), "the metrics guard does not treat remote callers as loopback");
@@ -346,10 +349,26 @@ try {
     });
     check(notProxied.status === 400, "a JSON-RPC method other than get_info is refused");
 
-    const poolRefused = await fetch(base + "/get_transaction_pool_hashes", {
+    const poolAnswer = await fetch(base + "/get_transaction_pool_hashes", {
       method: "POST", headers: { "content-type": "application/json" }, body: "{}",
     });
-    check(poolRefused.status === 400, "the pool route is refused without the compatibility flag");
+    const poolBody = await poolAnswer.json();
+    check(poolAnswer.status === 200 && Array.isArray(poolBody.tx_hashes),
+      "the pool route is on by default");
+
+    const poolOff = createWitnessServer({ network: "stagenet", daemonUrl: daemon.url, allowPool: false });
+    await new Promise((resolve) => poolOff.listen(0, "127.0.0.1", resolve));
+    try {
+      const poolOffBase = "http://127.0.0.1:" + poolOff.address().port;
+      const refused = await fetch(poolOffBase + "/get_transaction_pool_hashes", {
+        method: "POST", headers: { "content-type": "application/json" }, body: "{}",
+      });
+      check(refused.status === 400, "an operator can turn the pool route off");
+      const liveOff = await (await fetch(poolOffBase + "/live")).json();
+      check(liveOff.features && liveOff.features.pool === false, "liveness names the pool switch");
+    } finally {
+      await close(poolOff);
+    }
 
     const compat = createWitnessServer({ network: "stagenet", daemonUrl: daemon.url, allowGetBlock: true });
     await new Promise((resolve) => compat.listen(0, "127.0.0.1", resolve));
@@ -357,8 +376,9 @@ try {
       const compatBase = "http://127.0.0.1:" + compat.address().port;
       const compatLive = await fetch(compatBase + "/live");
       const compatLiveBody = await compatLive.json();
-      check(compatLive.status === 200 && compatLiveBody.features && compatLiveBody.features.getBlock === true,
-        "the explicit flag advertises get_block on liveness");
+      check(compatLive.status === 200 && compatLiveBody.features && compatLiveBody.features.getBlock === true
+        && compatLiveBody.features.pool === true,
+        "the explicit flag advertises get_block and the default pool route on liveness");
       const blockAnswer = await fetch(compatBase + "/json_rpc", {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({ jsonrpc: "2.0", id: "block", method: "get_block", params: { height: 105 } }),

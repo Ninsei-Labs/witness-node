@@ -63,13 +63,13 @@ GET  /live                liveness
 GET  /health              readiness (daemon + network)
 GET  /metrics             Prometheus text, loopback only by default
 GET  /info                protocol and optional operator metadata
-POST /json_rpc            get_info; get_block only with RFQ_WITNESS_ALLOW_GET_BLOCK=1
-POST /get_transaction_pool_hashes  only with RFQ_WITNESS_ALLOW_GET_BLOCK=1
+POST /json_rpc            get_info; get_block only with WITNESS_ALLOW_GET_BLOCK=1
+POST /get_transaction_pool_hashes  on by default; WITNESS_ALLOW_POOL=0 turns it off
 POST /get_transactions    1 to 4096 txids
 POST /v1/witness/slice
 ```
 
-CORS is allowed for the browser SDK. `RFQ_WITNESS_ALLOW_ORIGIN` narrows the origin; `*` is the default for a public
+CORS is allowed for the browser SDK. `WITNESS_ALLOW_ORIGIN` narrows the origin; `*` is the default for a public
 witness.
 
 The SDK needs the witness tip and the transaction bodies of the slice it just received. The service proxies exactly
@@ -79,11 +79,14 @@ route names an order, and neither turns the service into an arbitrary daemon pro
 readiness rule from the daemon answer: `untrusted: true` is `503 not-synchronized`, `status: "BUSY"` is `503 busy`, and
 any other non-OK status is `502 bad-daemon-answer`.
 
-`RFQ_WITNESS_ALLOW_GET_BLOCK=1` adds one narrow compatibility method to `/json_rpc`: `get_block` by exact height, and
-enables the global `/get_transaction_pool_hashes` route. The block answer returns only `block_header` (`height`, `hash`,
-`prev_hash`, `num_txes`, `timestamp`) and `tx_hashes`, never the daemon's `blob` or unrestricted body. Both are off by
-default because an exact height names the order's start or payout block, and the pool list is a network-wide read;
-enable them only on a private witness used for recovery compatibility, not on the public slice endpoint.
+`WITNESS_ALLOW_GET_BLOCK=1` adds one narrow compatibility method to `/json_rpc`: `get_block` by exact height. The
+block answer returns only `block_header` (`height`, `hash`, `prev_hash`, `num_txes`, `timestamp`) and `tx_hashes`,
+never the daemon's `blob` or unrestricted body. It is off by default because an exact height names the order's start
+or payout block; enable it only on a private witness used for recovery compatibility, not on the public slice endpoint.
+
+`/get_transaction_pool_hashes` is a global, order-independent list and is on by default. `WITNESS_ALLOW_POOL=0` turns
+it off. It is a separate switch from `get_block`, so a public witness can keep the pool route while refusing
+exact-height reads.
 
 ## Operational endpoints
 
@@ -92,21 +95,21 @@ enable them only on a private witness used for recovery compatibility, not on th
 `GET /health` is readiness. It probes the daemon's `get_info` and requires `synchronized: true`, `busy_syncing: false`,
 `untrusted: false`, `status: "OK"` and a matching `nettype`. It returns `200` with `checks: {daemon, network}` when
 ready, or `503` when any of those checks fails. The answer never contains the daemon URL. The probe is cached for
-`RFQ_WITNESS_HEALTH_TTL_MS` (default `5000`) so a scrape loop cannot turn into a daemon request loop.
+`WITNESS_HEALTH_TTL_MS` (default `5000`) so a scrape loop cannot turn into a daemon request loop.
 
 `POST /json_rpc` accepts `get_info`. It applies the same daemon check, then returns only `height`, `synchronized`,
 `nettype` and `status`. It does not relay the daemon's version, peers, disk space or bootstrap address. A daemon that
-is not ready is refused with `503 not-synchronized`. With `RFQ_WITNESS_ALLOW_GET_BLOCK=1`, it also accepts
+is not ready is refused with `503 not-synchronized`. With `WITNESS_ALLOW_GET_BLOCK=1`, it also accepts
 `get_block` for one exact height and returns the reduced compatibility shape described above; the height above the tip
 is refused as `not-synchronized`.
 
 `GET /metrics` uses the Prometheus text format. It exposes the process state, the last readiness result, the
 protocol/network/operator identity and request counts by route and status. It does not expose order data, block
-heights, txids or the daemon URL. It is loopback-only unless `RFQ_WITNESS_METRICS_PUBLISH` is `1`, `true`, `yes` or
+heights, txids or the daemon URL. It is loopback-only unless `WITNESS_METRICS_PUBLISH` is `1`, `true`, `yes` or
 `on`; a public proxy must not forward this route.
 
 `GET /info` returns the service name, protocol version, network, grid, uptime and the optional public
-`RFQ_WITNESS_OPERATOR` and `RFQ_WITNESS_CONTACT` values. It never returns private keys, wallet data, the daemon URL or
+`WITNESS_OPERATOR` and `WITNESS_CONTACT` values. It never returns private keys, wallet data, the daemon URL or
 the caller's address. The operator and contact are optional because naming an operator is a publication decision.
 
 A container healthcheck uses `/live`; an orchestrator readiness check uses `/health`.
@@ -116,10 +119,10 @@ A container healthcheck uses `/live`; an orchestrator readiness check uses `/hea
 The service is `witness-server.mjs` in this tree.
 
 ```bash
-RFQ_XMR_DAEMON=http://127.0.0.1:38081 \
-RFQ_WITNESS_NETWORK=stagenet \
-RFQ_WITNESS_HOST=127.0.0.1 \
-RFQ_WITNESS_PORT=8796 \
+WITNESS_XMR_DAEMON=http://127.0.0.1:38081 \
+WITNESS_NETWORK=stagenet \
+WITNESS_HOST=127.0.0.1 \
+WITNESS_PORT=8796 \
 bun witness-server.mjs
 ```
 
@@ -127,20 +130,22 @@ Optional settings:
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `RFQ_WITNESS_NETWORK` | `stagenet` | network named in every answer |
-| `RFQ_WITNESS_HOST` | `127.0.0.1` | listen address; a public deployment uses a proxy or `0.0.0.0` |
-| `RFQ_WITNESS_PORT` | `8796` | listen port; 8795 is the documented screen-hook example |
-| `RFQ_WITNESS_ALLOW_ORIGIN` | `*` | CORS allow origin |
-| `RFQ_WITNESS_TIMEOUT_MS` | `8000` | per-daemon request deadline |
-| `RFQ_WITNESS_OPERATOR` | unset | optional public operator name in `/info` and metrics |
-| `RFQ_WITNESS_CONTACT` | unset | optional public contact in `/info` |
-| `RFQ_WITNESS_METRICS_PUBLISH` | unset | `1` exposes `/metrics` beyond loopback |
-| `RFQ_WITNESS_ALLOW_GET_BLOCK` | unset | `1` adds the narrow exact-height `get_block` compatibility method |
-| `RFQ_WITNESS_HEALTH_TTL_MS` | `5000` | readiness probe cache |
-| `RFQ_WITNESS_MAX_INFLIGHT` | `4` | concurrent daemon-backed requests; excess requests get `503 busy` |
-| `RFQ_WITNESS_REQUEST_TIMEOUT_MS` | `10000` | request and header deadline in milliseconds |
+| `WITNESS_NETWORK` | `stagenet` | network named in every answer |
+| `WITNESS_HOST` | `127.0.0.1` | listen address; a public deployment uses a proxy or `0.0.0.0` |
+| `WITNESS_PORT` | `8796` | listen port; 8795 is the documented screen-hook example |
+| `WITNESS_ALLOW_ORIGIN` | `*` | CORS allow origin |
+| `WITNESS_TIMEOUT_MS` | `8000` | per-daemon request deadline |
+| `WITNESS_OPERATOR` | unset | optional public operator name in `/info` and metrics |
+| `WITNESS_CONTACT` | unset | optional public contact in `/info` |
+| `WITNESS_METRICS_PUBLISH` | unset | `1` exposes `/metrics` beyond loopback |
+| `WITNESS_ALLOW_GET_BLOCK` | unset | `1` adds the narrow exact-height `get_block` compatibility method |
+| `WITNESS_ALLOW_POOL` | `1` | `0` turns off the global pool-hashes route |
+| `WITNESS_HEALTH_TTL_MS` | `5000` | readiness probe cache |
+| `WITNESS_MAX_INFLIGHT` | `4` | concurrent daemon-backed requests; excess requests get `503 busy` |
+| `WITNESS_REQUEST_TIMEOUT_MS` | `10000` | request and header deadline in milliseconds |
 
-The service refuses to start without `RFQ_XMR_DAEMON`.
+The service refuses to start without `WITNESS_XMR_DAEMON`. The old `RFQ_XMR_DAEMON` and `RFQ_WITNESS_*` names are
+still read as deprecated aliases and will be removed in 1.0.0.
 
 ## Refusals
 

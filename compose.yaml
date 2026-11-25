@@ -14,8 +14,8 @@ services:
     env_file:
       - ./witness.env
     environment:
-      RFQ_WITNESS_HOST: 0.0.0.0
-      RFQ_WITNESS_PORT: "8796"
+      WITNESS_HOST: 0.0.0.0
+      WITNESS_PORT: "8796"
     ports:
       - "127.0.0.1:8796:8796"
     read_only: true

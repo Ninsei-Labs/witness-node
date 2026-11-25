@@ -74,11 +74,11 @@ try {
     "--security-opt", "no-new-privileges",
     "--add-host", "host.docker.internal:host-gateway",
     "-p", "127.0.0.1:" + hostPort + ":8796",
-    "-e", "RFQ_XMR_DAEMON=http://host.docker.internal:" + daemon.port,
-    "-e", "RFQ_WITNESS_NETWORK=stagenet",
-    "-e", "RFQ_WITNESS_ALLOW_ORIGIN=https://swap.example",
-    "-e", "RFQ_WITNESS_OPERATOR=CI smoke",
-    "-e", "RFQ_WITNESS_METRICS_PUBLISH=1",
+    "-e", "WITNESS_XMR_DAEMON=http://host.docker.internal:" + daemon.port,
+    "-e", "WITNESS_NETWORK=stagenet",
+    "-e", "WITNESS_ALLOW_ORIGIN=https://swap.example",
+    "-e", "WITNESS_OPERATOR=CI smoke",
+    "-e", "WITNESS_METRICS_PUBLISH=1",
     IMAGE,
   ]);
   assert.ok(container, "docker run returned a container id");

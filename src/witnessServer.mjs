@@ -91,13 +91,14 @@ async function readJson(req, limit) {
  * CREATE, DO NOT START. The caller owns the port and can close the server in a check.
  * @param {{network: string, daemonUrl: string, allowOrigin?: string, operator?: string|null,
  *   contact?: string|null, metricsPublished?: boolean, healthTtlMs?: number, maxInflight?: number,
- *   fetchImpl?: Function, timeoutMs?: number, maxBodyBytes?: number, allowGetBlock?: boolean}} config
+ *   fetchImpl?: Function, timeoutMs?: number, maxBodyBytes?: number, allowGetBlock?: boolean,
+ *   allowPool?: boolean}} config
  */
 export function createWitnessServer({
   network, daemonUrl, allowOrigin = "*", operator = null, contact = null, metricsPublished = false,
   healthTtlMs = 5000, maxInflight = 4, fetchImpl = globalThis.fetch, timeoutMs = 8000,
   maxBodyBytes = MAX_BODY_BYTES, requestTimeoutMs = 10000, headersTimeoutMs = 10000,
-  allowGetBlock = false,
+  allowGetBlock = false, allowPool = true,
 } = {}) {
   if (!network) throw new Error("witness server: network is required");
   if (!daemonUrl) throw new Error("witness server: daemon URL is required");
@@ -194,7 +195,7 @@ export function createWitnessServer({
 
     if (req.method === "GET" && req.url === "/live") {
       return send(200, { ok: true, service: SERVICE, version: WITNESS_VERSION, network, grid: WITNESS_SLICE_BLOCKS,
-        features: { getBlock: allowGetBlock }, routes: ROUTES });
+        features: { getBlock: allowGetBlock, pool: allowPool }, routes: ROUTES });
     }
 
     if (req.method === "GET" && req.url === "/health") {
@@ -210,7 +211,7 @@ export function createWitnessServer({
       return send(200, {
         ok: true, service: SERVICE, protocol: PROTOCOL, version: WITNESS_VERSION, network,
         grid: WITNESS_SLICE_BLOCKS, operator: operator || null, contact: contact || null,
-        features: { getBlock: allowGetBlock },
+        features: { getBlock: allowGetBlock, pool: allowPool },
         uptimeSec: Math.round((Date.now() - startedAt) / 1000), startedAt: new Date(startedAt).toISOString(),
       });
     }
@@ -218,7 +219,7 @@ export function createWitnessServer({
     if (req.method === "GET" && req.url === "/metrics") {
       if (!metricsPublished && !isLoopbackAddress(req.socket.remoteAddress)) {
         return send(403, { ok: false, code: "metrics-loopback-only",
-          error: "metrics answer loopback callers only; set RFQ_WITNESS_METRICS_PUBLISH=1 to publish them" });
+          error: "metrics answer loopback callers only; set WITNESS_METRICS_PUBLISH=1 to publish them" });
       }
       const current = await checkHealth();
       return send(200, metricsText(current), "text/plain; version=0.0.4; charset=utf-8");
@@ -272,9 +273,9 @@ export function createWitnessServer({
         return send(200, { jsonrpc: "2.0", id: body.id === undefined ? "witness" : body.id, result });
       }
       if (req.method === "POST" && req.url === "/get_transaction_pool_hashes") {
-        // THE RECOVERY COMPATIBILITY MODE ALSO NEEDS THE POOL. This is a global list, not an order-specific read;
-        // it stays behind the same explicit flag as get_block so a public slice witness never exposes it.
-        if (!allowGetBlock) throw new WitnessSliceError("bad-request", { why: "method-not-proxied" });
+        // THE POOL IS A GLOBAL LIST, NOT AN ORDER-SPECIFIC READ. It is on by default, but an operator can turn it off
+        // with WITNESS_ALLOW_POOL=0; it does not share a switch with exact-height get_block.
+        if (!allowPool) throw new WitnessSliceError("bad-request", { why: "method-not-proxied" });
         const body = await readJson(req, maxBodyBytes);
         if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).length !== 0) {
           throw new WitnessSliceError("bad-request", { why: "bad-pool-params" });
@@ -337,13 +338,14 @@ export function createWitnessServer({
 }
 
 export function listenHostFromEnv(env = process.env) {
-  return String(env.RFQ_WITNESS_HOST || "127.0.0.1").trim();
+  const raw = env.WITNESS_HOST !== undefined ? env.WITNESS_HOST : env.RFQ_WITNESS_HOST;
+  return String(raw || "127.0.0.1").trim();
 }
 
 export function listenPortFromEnv(env = process.env) {
-  const raw = String(env.RFQ_WITNESS_PORT || "8796").trim();
+  const raw = String((env.WITNESS_PORT !== undefined ? env.WITNESS_PORT : env.RFQ_WITNESS_PORT) || "8796").trim();
   const port = Number(raw);
-  if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error("RFQ_WITNESS_PORT is not a port: " + JSON.stringify(raw));
+  if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error("WITNESS_PORT is not a port: " + JSON.stringify(raw));
   return port;
 }
 
