@@ -18,8 +18,10 @@ export const WITNESS_SLICE_BLOCKS = 20;
 // sends a huge pool or transaction answer: the bytes are buffered here before they are parsed or relayed.
 export const DAEMON_RESPONSE_LIMITS = Object.freeze({
   json: 8 * 1024 * 1024,
-  pool: 1 * 1024 * 1024,
-  transactions: 32 * 1024 * 1024,
+  // A busy mainnet pool can exceed 15k hashes (~1 MiB); 8 MiB leaves room for 120k.
+  pool: 8 * 1024 * 1024,
+  // 4096 txids is the route cap; 16 KiB per decoded transaction is the planning ceiling.
+  transactions: 64 * 1024 * 1024,
 });
 
 const HEX64 = /^[0-9a-f]{64}$/i;
@@ -116,7 +118,10 @@ async function readBoundedBody(response, limit) {
       if (done) break;
       if (!value) continue;
       total += value.byteLength === undefined ? value.length : value.byteLength;
-      if (total > limit) throw tooLarge(limit);
+      if (total > limit) {
+        try { await reader.cancel(); } catch { /* the refusal is the answer */ }
+        throw tooLarge(limit);
+      }
       chunks.push(value);
     }
   } catch (error) {

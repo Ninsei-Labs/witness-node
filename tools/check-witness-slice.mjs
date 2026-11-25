@@ -76,7 +76,9 @@ const daemon = await new Promise((resolve) => {
       }
       if (Array.isArray(body.txs_hashes)) {
         res.writeHead(200, { "content-type": "application/json" });
-        return res.end(JSON.stringify({ txs: [{ tx_hash: TXID, block_height: 105 }], txs_as_json: ['{"version":2}'],
+        return res.end(JSON.stringify({
+          txs: body.txs_hashes.map((txid) => ({ tx_hash: txid, block_height: 105 })),
+          txs_as_json: body.txs_hashes.map(() => '{"version":2}'),
           status: daemonState.status, untrusted: daemonState.untrusted }));
       }
       const height = Number(body.params.height);
@@ -470,6 +472,15 @@ try {
     const txsBody = await txs.json();
     check(txs.status === 200 && Array.isArray(txsBody.txs_as_json) && txsBody.txs_as_json.length === 1,
       "the witness proxies the slice's transactions");
+
+    const manyTxids = Array.from({ length: 4096 }, (_, i) => String(i).padStart(64, "0"));
+    const manyTxs = await fetch(base + "/get_transactions", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ txs_hashes: manyTxids, decode_as_json: true }),
+    });
+    const manyTxsBody = await manyTxs.json();
+    check(manyTxs.status === 200 && manyTxsBody.txs_as_json && manyTxsBody.txs_as_json.length === 4096,
+      "a legitimate 4096-txid answer fits the transaction response cap");
 
     daemonState.untrusted = true;
     const untrustedTx = await fetch(base + "/get_transactions", {
