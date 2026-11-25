@@ -9,6 +9,8 @@ The image scan is a scheduled check, not a release gate. It builds the image fro
 - Scanner: Docker Scout CLI 1.28.0, clean `docker build --pull --no-cache`
 - Result: 0 Critical, 3 High, 0 Medium, 0 Low
 
+The image ID is the local build artifact from this scan. It was not pushed and is not a pullable registry reference. The scheduled workflow uses Trivy, so its first run may report a different count; the next record takes its result and image ID.
+
 The three High findings are one package:
 
 | Package | Version | CVE | Fixed version |
