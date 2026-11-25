@@ -162,8 +162,8 @@ const mutations = [
     "publish.yml moves latest without the release condition"],
 ];
 for (const [needle, replacement, message] of mutations) {
-  const checkCopy = check.replace(needle, replacement);
-  const publishCopy = publish.replace(needle, replacement);
+  const checkCopy = check.replaceAll(needle, replacement);
+  const publishCopy = publish.replaceAll(needle, replacement);
   const result = findings(checkCopy, publishCopy);
   assert.ok(result.includes(message), "the workflow check accepted a copy without: " + message);
 }

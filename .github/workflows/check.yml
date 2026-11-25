@@ -74,3 +74,15 @@ jobs:
           test "$(label org.opencontainers.image.title)" = "witness-node"
       - name: Run the container smoke
         run: bun run check:container
+
+  regtest:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.5
+      - name: Run the real monerod regtest check
+        run: bun run check:regtest
