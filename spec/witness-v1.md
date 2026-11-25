@@ -3,6 +3,11 @@
 The witness endpoint lets a client verify a Monero payment without telling the witness which order it is checking.
 It returns a fixed slice of blocks instead of an exact height.
 
+## RPC profile
+
+The witness is not a generic `monerod` proxy. The supported methods, dropped parameters, response reshaping and
+refusal codes are in [`../docs/RPC.md`](../docs/RPC.md).
+
 ## Endpoint
 
 ```http
