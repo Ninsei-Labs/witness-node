@@ -138,6 +138,8 @@ http {
         ssl_protocols TLSv1.2 TLSv1.3;
         ssl_session_cache shared:SSL:10m;
         ssl_session_timeout 1d;
+        # 0-RTT needs a TLS 1.3 ticket, and early data is replayable. Witness routes are expensive POSTs, so
+        # tickets stay off; TLS 1.2 session IDs still resume through the shared cache.
         ssl_session_tickets off;
         # Hybrid post-quantum key exchange when the OpenSSL build provides ML-KEM. Older clients fall back to X25519.
         ssl_ecdh_curve      X25519MLKEM768:X25519:prime256v1:secp384r1;
