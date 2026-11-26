@@ -250,17 +250,22 @@ bun run check
 SDK_DIR=../sdk bun run check:interop
 docker build -t witness-node:ci .
 bun run check:container
+bun run check:regtest
 ```
 
 - `check:slice` drives the reader and HTTP route, including the proxy routes, fixed-grid bounds, malformed
   answers, the partial tip slice, daemon readiness and idle-body timeouts.
-- `check:teeth` removes the `get_info` and `get_transactions` proxy routes and proves the HTTP call fails.
-- `check:workflows` checks the ready-for-review trigger and the publish ancestry, CI, environment and
-  pre-release gates.
+- `check:teeth` removes the `get_info` and `get_transactions` proxy routes and the pool guards, and proves each
+  mutation changes the route answer or fails the HTTP call.
+- `check:workflows` checks the ready-for-review gate, the publish ancestry, CI, environment and pre-release gates,
+  the CodeQL pull-request trigger and the scheduled image scan.
 - `check:interop` fetches a real witness answer and parses it with the SDK's `src/witness-slice.mjs`. It also runs
   one witness through the documented nginx route for the empty and non-empty pool, so Docker is required. Set
   `SDK_DIR` to the SDK checkout; CI checks out `Ninsei-Labs/sdk` at the pinned pool-aware commit
   `c0b58ac1d96c5ee18f2be7d3ca79e545acf5b005`.
+- `check:regtest` starts pinned `monerod` and `wallet-rpc` containers, mines 180 blocks, creates a real transaction,
+  and checks the pool before and after confirmation, the non-empty block, slice, transactions and compatibility
+  `get_block`. It requires Docker and does not use a public network.
 - `check:container` runs the built image against a deterministic stand-in daemon. It verifies the process runs as
   UID/GID `10001` and the root filesystem is read-only. It also checks that `/health` becomes ready, that `/metrics`
   and `/info` answer, and that the two proxy reads work. The response must contain the exact 20 pinned hashes from
@@ -288,11 +293,19 @@ A local test setup with three containers and one daemon is a protocol fixture, n
 
 ## Changelog
 
-### 0.3.1 (2026-11-25)
+### 0.3.1 (2026-11-26)
 
 The package version and the compose pin are both `0.3.1`.
 
-- The image applies Debian security upgrades at build time after the pinned base digest. A clean scan of `sha256:41a103a5aa1648afc374afec8fa422229b483d940dbd0e790adeeb760897f948` on base `oven/bun:1.4.5-slim@sha256:b780593f3e10918cbdaec3d5a08d52224b9198069a65eb47812085c2ec007643` reports 0 Critical and 3 High OpenSSL findings with no Debian fix. The scan record and triage are in [`docs/IMAGE-SCAN.md`](docs/IMAGE-SCAN.md).
+- A client disconnect cancels the in-flight daemon reads and releases the in-flight slot; one slice-wide deadline prevents abandoned work from holding a slot.
+- `/health` and `/metrics` share one in-flight `get_info` probe; only a completed result enters the TTL cache.
+- Daemon answers are read through a byte cap: JSON and pool 8 MiB, transactions 64 MiB; an oversized answer is `502 bad-daemon-answer` with `response-too-large`.
+- Boolean settings accept only `1/true/yes/on` or `0/false/no/off`; an empty or unknown value stops startup with the variable name.
+- One route registry drives dispatch, `/live`, the 404 `known` list, startup paths and metric labels; the pool route is part of it, and a wrong method answers `405` with `Allow`.
+- The `image-scan` workflow fails on fixable Critical/High findings and on a stale pinned base digest. The 0.3.1 scan has 0 Critical and 3 High OpenSSL findings without a Debian fix. The image applies Debian security upgrades after the pinned base digest; the scan record and reproducibility tradeoff are in [`docs/IMAGE-SCAN.md`](docs/IMAGE-SCAN.md).
+- The RPC profile document lists the allowlist, dropped parameters, response reshaping and refusal codes; this service is not a generic `monerod` proxy.
+- The CI SDK checkout is pinned to the current SDK main commit that reads the pool route. Interop covers empty and non-empty pools through the documented nginx example, and a real monerod regtest job covers empty and non-empty blocks, a confirmed transaction, slice, transactions and pool.
+- CodeQL runs on pull requests as well as push and schedule; the analyze job is skipped for draft PRs.
 
 ### 0.3.0 (2026-11-25)
 
