@@ -90,7 +90,9 @@ const show = (value) => JSON.stringify(value, (_, item) => typeof item === "bigi
 
 async function witnessFor(daemon, operator) {
   const server = createWitnessServer({ network: "stagenet", daemonUrl: daemon.url, healthTtlMs: 0, operator });
-  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  // NGINX REACHES THE HOST THROUGH A CONTAINER GATEWAY. Binding the witness to loopback makes the documented
+  // proxy check pass on Docker Desktop but fail on a native Linux runner, so this test listener uses all interfaces.
+  await new Promise((resolve) => server.listen(0, "0.0.0.0", resolve));
   return { server, url: "http://127.0.0.1:" + server.address().port, operator };
 }
 
