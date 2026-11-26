@@ -26,6 +26,7 @@ function readBody(req) {
 }
 
 export function startFakeDaemon({ host = "0.0.0.0", port = 0, network = "stagenet", state = {}, payout = true, txJson = null } = {}) {
+  const calls = [];
   const info = () => ({
     height: 120, synchronized: true, nettype: network, busy: false, busy_syncing: false, untrusted: false,
     status: "OK", ...state,
@@ -34,6 +35,7 @@ export function startFakeDaemon({ host = "0.0.0.0", port = 0, network = "stagene
   const server = createServer(async (req, res) => {
     try {
       const body = await readBody(req);
+      calls.push({ path: req.url, method: body && body.method ? body.method : null });
       res.setHeader("content-type", "application/json");
       if (req.url === "/json_rpc") {
         if (body.method === "get_info") {
@@ -56,11 +58,15 @@ export function startFakeDaemon({ host = "0.0.0.0", port = 0, network = "stagene
       }
       if (req.url === "/get_transactions") {
         const txids = Array.isArray(body.txs_hashes) ? body.txs_hashes : [];
-        if (!payout) return res.end(JSON.stringify({ txs_as_json: [], txs: [], status: state.status || "OK",
+        const pool = new Set(Array.isArray(state.poolHashes) ? state.poolHashes : []);
+        const known = txids.filter((txid) => payout || pool.has(txid));
+        if (!known.length) return res.end(JSON.stringify({ txs_as_json: [], txs: [], status: state.status || "OK",
           untrusted: state.untrusted === true }));
         const bodyJson = txJson === null ? { txid: TXID } : txJson;
-        return res.end(JSON.stringify({ txs_as_json: txids.map(() => JSON.stringify(bodyJson)),
-          txs: txids.map((txid) => ({ tx_hash: txid, block_height: 105, confirmations: 16 })),
+        const inPool = !payout;
+        return res.end(JSON.stringify({ txs_as_json: known.map(() => JSON.stringify(bodyJson)),
+          txs: known.map((txid) => ({ tx_hash: txid, block_height: inPool ? null : 105,
+            confirmations: inPool ? 0 : 16, in_pool: inPool })),
           status: state.status || "OK", untrusted: state.untrusted === true }));
       }
       if (req.url === "/get_transaction_pool_hashes") {
@@ -68,7 +74,7 @@ export function startFakeDaemon({ host = "0.0.0.0", port = 0, network = "stagene
         // the SDK correctly answer "unknown", so the interop check must model a synced node with an empty mempool.
         // A real monerod omits `tx_hashes` when the pool is empty, so the fixture does the same.
         const hashes = state.poolHashes ?? [];
-        return res.end(JSON.stringify(hashes.length ? { tx_hashes: hashes }
+        return res.end(JSON.stringify(hashes.length ? { tx_hashes: hashes, status: "OK", untrusted: false }
           : { credits: 0, status: "OK", top_hash: "", untrusted: false }));
       }
       res.statusCode = 404;
@@ -88,6 +94,7 @@ export function startFakeDaemon({ host = "0.0.0.0", port = 0, network = "stagene
         port: actualPort,
         url: "http://127.0.0.1:" + actualPort,
         state,
+        calls,
         close: () => new Promise((done) => { server.closeAllConnections?.(); server.close(done); }),
       });
     });

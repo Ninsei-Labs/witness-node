@@ -8,12 +8,13 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const PUBLISH_SDK_PIN = "20515404f5546680ba609b71074d977bd2444196";
+const PUBLISH_SDK_PIN = "c0b58ac1d96c5ee18f2be7d3ca79e545acf5b005";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const check = readFileSync(join(ROOT, ".github", "workflows", "check.yml"), "utf8");
-const publish = readFileSync(join(ROOT, ".github", "workflows", "publish.yml"), "utf8");
-const codeql = readFileSync(join(ROOT, ".github", "workflows", "codeql.yml"), "utf8");
-const imageScan = readFileSync(join(ROOT, ".github", "workflows", "image-scan.yml"), "utf8");
+const readWorkflow = (name) => readFileSync(join(ROOT, ".github", "workflows", name), "utf8").replace(/\r\n/g, "\n");
+const check = readWorkflow("check.yml");
+const publish = readWorkflow("publish.yml");
+const codeql = readWorkflow("codeql.yml");
+const imageScan = readWorkflow("image-scan.yml");
 
 function namedSteps(text) {
   const result = [];
