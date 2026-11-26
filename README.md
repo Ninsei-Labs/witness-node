@@ -257,8 +257,10 @@ bun run check:container
 - `check:teeth` removes the `get_info` and `get_transactions` proxy routes and proves the HTTP call fails.
 - `check:workflows` checks the ready-for-review trigger and the publish ancestry, CI, environment and
   pre-release gates.
-- `check:interop` fetches a real witness answer and parses it with the SDK's `src/witness-slice.mjs`. Set
-  `SDK_DIR` to the SDK checkout; CI checks out `Ninsei-Labs/sdk` on `main`.
+- `check:interop` fetches a real witness answer and parses it with the SDK's `src/witness-slice.mjs`. It also runs
+  one witness through the documented nginx route for the empty and non-empty pool, so Docker is required. Set
+  `SDK_DIR` to the SDK checkout; CI checks out `Ninsei-Labs/sdk` at the pinned pool-aware commit
+  `c0b58ac1d96c5ee18f2be7d3ca79e545acf5b005`.
 - `check:container` runs the built image against a deterministic stand-in daemon. It verifies the process runs as
   UID/GID `10001` and the root filesystem is read-only. It also checks that `/health` becomes ready, that `/metrics`
   and `/info` answer, and that the two proxy reads work. The response must contain the exact 20 pinned hashes from
