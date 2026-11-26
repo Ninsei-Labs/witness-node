@@ -12,8 +12,8 @@ Monero RPC allowlist, parameter reshaping and refusal profile. This service is n
 Routes:
 
 ```text
-GET  /live
-GET  /health
+GET  /live             liveness; safe for public uptime checks
+GET  /health           readiness; may be public and is cached for WITNESS_HEALTH_TTL_MS
 GET  /metrics          loopback only unless WITNESS_METRICS_PUBLISH=1
 GET  /info
 POST /json_rpc          get_info; get_block only with WITNESS_ALLOW_GET_BLOCK=1
@@ -37,9 +37,13 @@ endpoint: an exact height names the order's start or payout block.
 `WITNESS_ALLOW_POOL=0` to turn it off. It is a separate switch from exact-height `get_block`; a public operator can
 keep the pool route while leaving exact-height reads disabled.
 
-`/live` is liveness, `/health` is readiness against the daemon and network, `/metrics` is Prometheus text, and
-`/info` names the protocol and optional operator metadata. The health probe never prints the daemon URL. Metrics
-carry no order data, heights, txids or daemon URL.
+`/live` is liveness and does not read the daemon. `/health` is readiness against the daemon and network, `/metrics`
+is Prometheus text, and `/info` names the protocol and optional operator metadata. The health probe never prints the
+daemon URL. Metrics carry no order data, heights, txids or daemon URL.
+
+`/health` may be published through the public proxy so a client can avoid a witness whose daemon is still syncing.
+Its answer is cached for `WITNESS_HEALTH_TTL_MS` and is shared by every caller; it is a hint, not proof. A client that
+needs data must still verify the slice it receives. Keep `/metrics` private.
 
 `/metrics` answers loopback callers by default. In a container the published port arrives through the bridge. A
 scraper must either share the container network namespace or set `WITNESS_METRICS_PUBLISH=1` while keeping the
@@ -110,7 +114,7 @@ http {
     server_tokens off;
 
     # Per-IP limits. A slice is expensive; tune after measuring the daemon.
-    limit_req_zone  $binary_remote_addr zone=witness_rps:10m  rate=2r/s;
+    limit_req_zone  $binary_remote_addr zone=witness_rps:10m  rate=3r/s;
     limit_conn_zone $binary_remote_addr zone=witness_conn:10m;
 
     upstream witness {
@@ -152,7 +156,7 @@ http {
         client_body_timeout 10s;
         client_header_timeout 10s;
 
-        limit_req zone=witness_rps burst=10 nodelay;
+        limit_req zone=witness_rps burst=5 nodelay;
         limit_conn witness_conn 2;
         limit_req_status 429;
         limit_conn_status 429;
@@ -167,14 +171,13 @@ http {
         proxy_send_timeout 60s;
         proxy_read_timeout 60s;
 
-        # The SDK does not need these internal endpoints.
+        # Readiness for clients that must avoid a syncing daemon. The probe is cached and contains no daemon URL.
         location = /health {
-            allow 127.0.0.1;
-            allow ::1;
-            deny all;
+            limit_except GET OPTIONS { deny all; }
             proxy_pass http://witness;
         }
 
+        # Operational metrics stay private.
         location = /metrics {
             allow 127.0.0.1;
             allow ::1;
@@ -228,18 +231,18 @@ Notes:
 
 - CORS is answered by the witness. Do not add a second `Access-Control-Allow-Origin` in nginx, or browsers will see
   duplicate headers. `OPTIONS` is allowed so the application can answer the preflight.
-- The `/metrics` and `/health` locations are intentionally loopback-only. If nginx and the witness are separate
-  containers, the witness sees nginx's container address, not loopback. Put them on a private network.
-- Expose metrics only on that private network, or set `WITNESS_METRICS_PUBLISH=1` for a private, non-public
-  listener. Do not forward either route through the public server block.
+- `/health` may be public: it is a cached readiness hint, not proof of the data. `/metrics` stays loopback-only. If
+  nginx and the witness are separate containers, the witness sees nginx's container address, not loopback.
+- Expose metrics only on a private network, or set `WITNESS_METRICS_PUBLISH=1` for a private, non-public listener.
+  Do not forward `/metrics` through the public server block.
 - `limit_req_zone` keys on the client address. Behind a CDN or load balancer, configure `real_ip` with that provider's
   trusted ranges; do not trust a client-supplied `X-Forwarded-For` blindly.
 - `proxy_read_timeout 60s` is a starting point. A slice is up to 20 sequential daemon reads; if the daemon is slow,
   raise the timeout deliberately rather than removing it.
 - Not caching the slice is intentional: the tip and the block set change, and a cached witness answer must not be
   reused for another caller's range.
-- Keep a separate, non-public monitoring path for `/health` and `/metrics`. Public liveness via `/live` is enough for
-  an external uptime checker.
+- Keep `/metrics` on a non-public path. `/live` is the public uptime signal; `/health` gives clients a cached readiness
+  hint and does not replace checking the returned slice.
 - If the site is behind Cloudflare or another proxy, use the provider's documented `real_ip` ranges and keep the
   origin reachable only from that provider.
 
