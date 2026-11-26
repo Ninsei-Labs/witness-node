@@ -102,6 +102,10 @@ exact-height reads.
 ready, or `503` when any of those checks fails. The answer never contains the daemon URL. The probe is cached for
 `WITNESS_HEALTH_TTL_MS` (default `5000`) so a scrape loop cannot turn into a daemon request loop.
 
+A deployment may publish `/health` through the public proxy so a client can avoid a syncing witness. It is a cached
+readiness hint, not proof: a client that needs data must still verify the slice it receives. `/metrics` remains
+non-public.
+
 `POST /json_rpc` accepts `get_info`. It applies the same daemon check, then returns only `height`, `synchronized`,
 `nettype` and `status`. It does not relay the daemon's version, peers, disk space or bootstrap address. A daemon that
 is not ready is refused with `503 not-synchronized`. With `WITNESS_ALLOW_GET_BLOCK=1`, it also accepts
