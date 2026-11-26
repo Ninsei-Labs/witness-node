@@ -138,7 +138,11 @@ http {
         ssl_protocols TLSv1.2 TLSv1.3;
         ssl_session_cache shared:SSL:10m;
         ssl_session_timeout 1d;
+        # 0-RTT needs a TLS 1.3 ticket, and early data is replayable. Witness routes are expensive POSTs, so
+        # tickets stay off; TLS 1.2 session IDs still resume through the shared cache.
         ssl_session_tickets off;
+        # Hybrid post-quantum key exchange when the OpenSSL build provides ML-KEM. Older clients fall back to X25519.
+        ssl_ecdh_curve      X25519MLKEM768:X25519:prime256v1:secp384r1;
         ssl_stapling on;
         ssl_stapling_verify on;
 
@@ -231,6 +235,8 @@ Notes:
 
 - CORS is answered by the witness. Do not add a second `Access-Control-Allow-Origin` in nginx, or browsers will see
   duplicate headers. `OPTIONS` is allowed so the application can answer the preflight.
+- `X25519MLKEM768` is a hybrid key exchange, not a post-quantum certificate. It needs an OpenSSL build with ML-KEM;
+  clients without it negotiate X25519. Keep TLS 1.3 0-RTT off: early data is replayable and the witness routes are POSTs.
 - `/health` may be public: it is a cached readiness hint, not proof of the data. `/metrics` stays loopback-only. If
   nginx and the witness are separate containers, the witness sees nginx's container address, not loopback.
 - Expose metrics only on a private network, or set `WITNESS_METRICS_PUBLISH=1` for a private, non-public listener.
